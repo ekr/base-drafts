@@ -607,7 +607,7 @@ early exporter keys being unavailable, thereby preventing the use of 0-RTT for
 QUIC.
 
 A client that attempts 0-RTT MUST also consider 0-RTT to be rejected if it
-receives a Retry or Version Negotiation packet.
+receives a Version Negotiation packet.
 
 When 0-RTT is rejected, all connection characteristics that the client assumed
 might be incorrect.  This includes the choice of application protocol, transport
@@ -659,9 +659,9 @@ exposing TLS record protection keys.
 
 ### Initial Secrets {#initial-secrets}
 
-Packets that carry the TLS handshake (Initial, Retry, and Handshake) are
-protected with a secret derived from the Destination Connection ID field from
-the client's Initial packet.  Specifically:
+Packets that carry the TLS handshake (Initial and Handshake) are protected with
+a secret derived from the Destination Connection ID field from the client's
+Initial packet.  Specifically:
 
 ~~~
 initial_salt = 0x9c108f98520a5c5c32968e950e8a2c5fe06d6c38
@@ -1149,6 +1149,10 @@ many others.
 > final version of this document.
 
 Issue and pull request numbers are listed with a leading octothorp.
+
+## Since draft-ietf-quic-tls-11
+
+- Remove source address validation from TLS.
 
 ## Since draft-ietf-quic-tls-10
 
