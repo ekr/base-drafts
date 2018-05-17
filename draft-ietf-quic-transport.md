@@ -550,7 +550,7 @@ of protection against off-path attackers.
 ### Initial Packet {#packet-initial}
 
 The Initial packet uses long headers with a type value of 0x7F.  It carries the
-first cryptographic handshake message sent by the client.
+first CRYPTO_HS frames sent by the client and the server.
 
 The Initial packet has two additional header fields that follow the normal Long
 Header.
@@ -636,9 +636,8 @@ perform a stateless retry (see {{stateless-retry}}).
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ~~~
 
-A Retry packet does not follow the same payload encryption scheme as the Initial
-and Handshake packets. Instead, the payload of a Retry packet contains two
-values:
+A Retry packet is not encrypted at all. Instead, the payload of a
+Retry packet contains two values in the clear.
 
 Original Destination Connection ID:
 
@@ -669,11 +668,11 @@ A Retry packet is never explicitly acknowledged in an ACK frame by a client.
 A server MUST only send a Retry in response to a client Initial packet.
 
 If the Original Destination Connection ID field does not match the
-Destination Connection ID from the Initial packet it sent, it MUST
+Destination Connection ID from the Initial packet it sent, clients MUST
 discard the packet. This prevents an off-path attacker from injecting
 a Retry packet with a bogus new Source Connection ID.
 
-Otherwise, it SHOULD respond with a new Initial
+Otherwise, the client SHOULD respond with a new Initial
 packet with the Token field set to the token received in the Retry packet.
 
 
@@ -951,7 +950,7 @@ explained in more detail as they are referenced later in the document.
 | 0x0e        | PATH_CHALLENGE    | {{frame-path-challenge}}    |
 | 0x0f        | PATH_RESPONSE     | {{frame-path-response}}     |
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
-| 0x18        | CRYPTO_HS          | {{frame-crypto}}            |
+| 0x18        | CRYPTO_HS          | {{frame-crypto}}           |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
 | 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
 | 0x21        | NEW_TOKEN         | {{frame-new-token}}         |
@@ -1512,8 +1511,8 @@ the token, so there is no need for a single well-defined format.  A token could
 include information about the claimed client address (IP and port), a
 timestamp, and any other supplementary information the server will need to
 validate the token in the future. Servers SHOULD construct tokens in such
-a way that they cannot be forged, for instance by AEAD-encrypting them
-with a key known to the server.
+a way that they cannot be forged, for instance by encrypting them
+using an AEAD algorithm and a key known to the server.
 
 The Retry packet is sent to the client and then a legitimate client will
 respond with a token in the Initial packet's header when it attempts to continue
