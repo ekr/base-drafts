@@ -1502,17 +1502,16 @@ migration, see {{migrate-validate}}.
 
 QUIC uses token-based address validation.  Any time the server wishes to
 validate a client address, it provides the client with a token.  As long as the
-token cannot be easily guessed (see {{token-integrity}}), if the client is able
+token's authenticity can be checked (see {{token-integrity}}), if the client is able
 to return that token, it proves to the server that it received the token.
 
-If QUIC decides to request address validation, it encodes the token in a Retry
-packet.  The contents of this token are consumed by the server that generates
-the token, so there is no need for a single well-defined format.  A token could
+If QUIC decides to request address validation for the current
+handshake, it encodes the token in a Retry packet. The contents of
+this token are consumed by the server that generates the token, so
+there is no need for a single well-defined format.  A token could
 include information about the claimed client address (IP and port), a
-timestamp, and any other supplementary information the server will need to
-validate the token in the future. Servers SHOULD construct tokens in such
-a way that they cannot be forged, for instance by encrypting them
-using an AEAD algorithm and a key known to the server.
+timestamp, and any other supplementary information the server will
+need to validate the token in the future.
 
 The Retry packet is sent to the client and then a legitimate client will
 respond with a token in the Initial packet's header when it attempts to continue
@@ -1533,7 +1532,7 @@ echo the address validation token from a new Retry packet up to 3 times. After
 that, the client may give up on the connection attempt.
 
 
-### Address Validation on Session Resumption
+### Address Validation for Future Connections
 
 A server MAY provide clients with an address validation token during one
 connection that can be used on a subsequent connection.  Address validation is
