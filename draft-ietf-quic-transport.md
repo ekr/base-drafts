@@ -913,6 +913,7 @@ explained in more detail as they are referenced later in the document.
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
 | 0x18        | CRYPTO            | {{frame-crypto}}            |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
+| 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
 {: #frame-types title="Frame Types"}
 
 # Life of a Connection
@@ -3056,6 +3057,17 @@ a real ACK.
 A EMPTY_ACK frame has no content.  That is, a EMPTY_ACK frame consists of the
 single octet that identifies the frame as a EMPTY_ACK frame.
 
+## CRYPTO_CLOSE Frame {#frame-crypto-close}
+
+The CRYPTO_CLOSE frame (type=0x20) is used to indicate connection failures
+caused by the crypto handshake. It uses the same format as the
+CONNECTION_CLOSE frame ({{frame-connection-close}}), except that the
+error codes are specific to the crypto protocol in use. For TLS 1.3,
+the error code is simply the TLS alert number.
+
+Other than the error code space, the format and semantics of the
+CRYPTO_CLOSE frame are identical to the CONNECTION_CLOSE frame.
+
 
 # Packetization and Reliability {#packetization}
 
@@ -4312,7 +4324,7 @@ Issue and pull request numbers are listed with a leading octothorp.
 
 - Enable server to transition connections to a preferred address (#560,#1251).
 - No more stream 0.
-- EMPTY_ACK and CRYPTO frames
+- EMPTY_ACK, CRYPTO, and CRYPTO_CLOSE frames
 
 ## Since draft-ietf-quic-transport-10
 
