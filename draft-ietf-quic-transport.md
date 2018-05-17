@@ -535,7 +535,7 @@ process.
 
 Once version negotiation is complete, the cryptographic handshake is used to
 agree on cryptographic keys.  The cryptographic handshake is carried in Initial
-({{packet-initial}}), and Handshake ({{packet-handshake}}) packets.
+({{packet-initial}}) and Handshake ({{packet-handshake}}) packets.
 
 All these packets use the long header and contain the current QUIC version in
 the version field.
@@ -550,37 +550,45 @@ of protection against off-path attackers.
 ### Initial Packet {#packet-initial}
 
 The Initial packet uses long headers with a type value of 0x7F.  It carries the
-first cryptographic handshake message sent by the client as well as the
-cryptographic messages sent by the server to perform key exchange. The Initial
-packet is protected by Initial keys as described in {{QUIC-TLS}}.
+first cryptographic handshake message sent by the client.
 
-When an an Initial packet is sent by a client which has not previously received
-a Retry packet from the server, it populates the Destination Connection ID field
-with a randomly selected value.  This MUST be at least 8 octets in length. Until
-a packet is received from the server, the client MUST use the same random value
-unless it also changes the Source Connection ID (which effectively starts a new
-connection attempt).  The randomized Destination Connection ID is used to
-determine packet protection keys.
+The Initial packet has two additional header fields that follow the normal Long
+Header.
 
-A server sends its first Initial packet in response to a Client Initial.  A
-server may send multiple Initial packets.  The Cryptographic key exchange could
-require multiple round trips or we might perform retransmissions of this data.
+~~~
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|        Token Length (i)  ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            Token (*)                        ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~~~
 
-The Destination Connection ID field in the server's Initial packet contains a
-connection ID that is chosen by the recipient of the packet; the Source
-Connection ID includes the connection ID that the sender of the packet wishes to
-use (see {{connection-id}}).
+Token Length:
 
-On receiving the first Server Initial packet the client uses the Source
-Connection ID supplied by the server as the Destination Connection ID for
-subsequent packets.
+: A variable-length integer specifying the length of the Token field, in bytes.
+It may be zero if no token is present. The server MUST send a zero-length
+token.
 
-If the client received a Retry packet from the server and is sending a second
-Initial packet, then it sets the Destination Connection ID to the value from the
-Source Connection ID in the Retry packet.
+Token:
 
-Changing Destination Connection ID also results in a change to the keys used to
-protect the Initial packet.
+: An optional token blob previously received in either a Retry packet or
+NEW_TOKEN frame.
+
+If the client has not previously received a Retry packet from the server, it
+populates the Destination Connection ID field with a randomly selected value.
+This MUST be at least 8 octets in length.  Until a packet is received from the
+server, the client MUST use the same random value unless it also changes the
+Source Connection ID (which effectively starts a new connection attempt).  The
+randomized Destination Connection ID is used to determine packet protection
+keys, but is not included in server packets.
+
+If the client received a Retry packet and is sending a second Initial packet,
+then it sets the Destination Connection ID to the value from the Source
+Connection ID in the Retry packet.  Changing Destination Connection ID also
+results in a change to the keys used to protect the Initial packet. Subsequent
+Retry packets MUST NOT change the Destination Connection ID.
 
 The client populates the Source Connection ID field with a value of its choosing
 and sets the low bits of the ConnID Len field to match.
@@ -606,13 +614,41 @@ packet containing the initial cryptographic message needs to be created, this
 includes the packets sent after receiving a Version Negotiation
 ({{packet-version}}) or Retry packet ({{packet-retry}}).
 
+When a server receives an Initial packet with an address validation token, it
+should attempt to validate it.  If the token is invalid then it should just be
+ignored.  If the validation succeeds, the server should then allow future
+connection handshakes to proceed (see {{stateless-retry}}).
+
 
 ### Retry Packet {#packet-retry}
 
-A Retry packet uses long headers with a type value of 0x7E.  It carries
-an opaque token from the server to be used for address validation of the client.
-It is used by a server that wishes to perform a stateless retry
-(see {{stateless-retry}}).
+A Retry packet uses long headers with a type value of 0x7E.  It carries address
+validation token created by the server.  It is used by a server that wishes to
+perform a stateless retry (see {{stateless-retry}}).
+
+~~~
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     DCIL(8)   |      Original Destination Connection ID (*)   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Retry Token (*)
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~~~
+
+A Retry packet does not follow the same payload encryption scheme as the Initial
+and Handshake packets. Instead, the payload of a Retry packet contains two
+values:
+
+Original Destination Connection ID:
+
+: The Destination Connection ID from the Initial packet that this
+Retry is in response to. The length of this field is given in DCIL.
+
+Retry Token:
+
+: An opaque token that the server can use to validate the client's
+address.
 
 The server populates the Destination Connection ID with the connection ID that
 the client included in the Source Connection ID of the Initial packet.  This
@@ -628,14 +664,17 @@ it creates a "cheat" where the client assumes a value.  That's a problem, so I'm
 tempted to suggest that this include any value less than 2^30 so that normal
 processing works - and can be properly exercised.]]
 
-A Retry packet is never explicitly acknowledged and is not re-transmitted.
+A Retry packet is never explicitly acknowledged in an ACK frame by a client.
 
-After receiving a Retry packet, the client immediately retransmits its handshake
-data in its original Initial packet, along with a copy of the Retry packet.
-\[\[TODO: replace this with Nick's proposal.]]
+A server MUST only send a Retry in response to a client Initial packet.
 
-The payload of the Retry packet is completely opaque to QUIC and is not intended
-to be parsed as a regular packet.
+If the Original Destination Connection ID field does not match the
+Destination Connection ID from the Initial packet it sent, it MUST
+discard the packet. This prevents an off-path attacker from injecting
+a Retry packet with a bogus new Source Connection ID.
+
+Otherwise, it SHOULD respond with a new Initial
+packet with the Token field set to the token received in the Retry packet.
 
 
 ### Handshake Packet {#packet-handshake}
@@ -904,9 +943,10 @@ explained in more detail as they are referenced later in the document.
 | 0x0e        | PATH_CHALLENGE    | {{frame-path-challenge}}    |
 | 0x0f        | PATH_RESPONSE     | {{frame-path-response}}     |
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
-| 0x18        | CRYPTO_HS            | {{frame-crypto}}            |
+| 0x18        | CRYPTO_HS          | {{frame-crypto}}            |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
 | 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
+| 0x21        | NEW_TOKEN         | {{frame-new-token}}         |
 {: #frame-types title="Frame Types"}
 
 # Life of a Connection
@@ -1267,8 +1307,8 @@ ack_delay_exponent (0x0007):
 : An 8-bit unsigned integer value indicating an exponent used to decode the ACK
   Delay field in the ACK frame, see {{frame-ack}}.  If this value is absent, a
   default value of 3 is assumed (indicating a multiplier of 8).  The default
-  value is also used for ACK frames that are sent in Initial, Handshake, and
-  Retry packets.  Values above 20 are invalid.
+  value is also used for ACK frames that are sent in Initial and Handshake
+  packets.  Values above 20 are invalid.
 
 A server MAY include the following transport parameters:
 
@@ -1408,17 +1448,10 @@ A server can process an initial cryptographic handshake messages from a client
 without committing any state. This allows a server to perform address validation
 ({{address-validation}}), or to defer connection establishment costs.
 
-A server that generates a response to an initial packet without retaining
+A server that generates a response to an Initial packet without retaining
 connection state MUST use the Retry packet ({{packet-retry}}).  This packet
-causes a client to reset its transport state and to continue the connection
-attempt with new connection state while maintaining the state of the
-cryptographic handshake.
-
-A server MUST NOT send multiple Retry packets in response to a client handshake
-packet.  Thus, any cryptographic handshake message that is sent MUST fit within
-a single packet.
-
-In TLS, the Retry packet type is used to carry the HelloRetryRequest message.
+causes a client to restart the connection attempt and includes the token in the
+new Initial packet ({{packet-initial}}) to prove source address ownership.
 
 
 ## Proof of Source Address Ownership {#address-validation}
@@ -1452,8 +1485,7 @@ To send additional data prior to completing the cryptographic handshake, the
 server then needs to validate that the client owns the address that it claims.
 
 Source address validation is therefore performed during the establishment of a
-connection.  TLS provides the tools that support the feature, but basic
-validation is performed by the core transport protocol.
+connection, by the core transport protocol.
 
 A different type of source address validation is performed after a connection
 migration, see {{migrate-validate}}.
@@ -1466,30 +1498,32 @@ validate a client address, it provides the client with a token.  As long as the
 token cannot be easily guessed (see {{token-integrity}}), if the client is able
 to return that token, it proves to the server that it received the token.
 
-During the processing of the cryptographic handshake messages from a client, TLS
-will request that QUIC make a decision about whether to proceed based on the
-information it has.  TLS will provide QUIC with any token that was provided by
-the client.  For an initial packet, QUIC can decide to abort the connection,
-allow it to proceed, or request address validation.
+If QUIC decides to request address validation, it encodes the token in a Retry
+packet.  The contents of this token are consumed by the server that generates
+the token, so there is no need for a single well-defined format.  A token could
+include information about the claimed client address (IP and port), a
+timestamp, and any other supplementary information the server will need to
+validate the token in the future. Servers SHOULD construct tokens in such
+a way that they cannot be forged, for instance by AEAD-encrypting them
+with a key known to the server.
 
-If QUIC decides to request address validation, it provides the cryptographic
-handshake with a token.  The contents of this token are consumed by the server
-that generates the token, so there is no need for a single well-defined format.
-A token could include information about the claimed client address (IP and
-port), a timestamp, and any other supplementary information the server will need
-to validate the token in the future.
-
-The cryptographic handshake is responsible for enacting validation by sending
-the address validation token to the client.  A legitimate client will include a
-copy of the token when it attempts to continue the handshake.  The cryptographic
-handshake extracts the token then asks QUIC a second time whether the token is
-acceptable.  In response, QUIC can either abort the connection or permit it to
-proceed.
+The Retry packet is sent to the client and then a legitimate client will
+respond with a token in the Initial packet's header when it attempts to continue
+the connection attempt.  In response to receiving the token, QUIC can either
+abort the connection or permit it to proceed.
 
 A connection MAY be accepted without address validation - or with only limited
 validation - but a server SHOULD limit the data it sends toward an unvalidated
 address.  Successful completion of the cryptographic handshake implicitly
 provides proof that the client has received packets from the server.
+
+The client should allow for additional Retry packets being sent in response to
+Initial packets sent containing a token. There are several situations in which
+the server might not be able to use the previously generated token to validate
+the client's address and must send a new Retry. A reasonable limit to the number
+of tries the client allows for, before giving up, is 3. That is, the should
+echo the address validation token from a new Retry packet up to 3 times. After
+that, the client may give up on the connection attempt.
 
 
 ### Address Validation on Session Resumption
@@ -1499,20 +1533,18 @@ connection that can be used on a subsequent connection.  Address validation is
 especially important with 0-RTT because a server potentially sends a significant
 amount of data to a client in response to 0-RTT data.
 
-A different type of token is needed when resuming.  Unlike the token that is
-created during a handshake, there might be some time between when the token is
-created and when the token is subsequently used.  Thus, a resumption token
-SHOULD include an expiration time.  It is also unlikely that the client port
-number is the same on two different connections; validating the port is
-therefore unlikely to be successful.
+The server uses the NEW_TOKEN frame {{frame-new-token}} to provide the client
+with an address validation token that can be used to validate future 0-RTT
+connections.  The client may then use this token to validate future 0-RTT
+connections by including it in the Initial packet's header.
 
-This token can be provided to the cryptographic handshake immediately after
-establishing a connection.  QUIC might also generate an updated token if
-significant time passes or the client address changes for any reason (see
-{{migration}}).  The cryptographic handshake is responsible for
-providing the client with the token.  In TLS the token is included in the ticket
-that is used for resumption and 0-RTT, which is carried in a NewSessionTicket
-message.
+Unlike the token that is created for a Retry packet, there might be some time
+between when the token is created and when the token is subsequently used.
+Thus, a resumption token SHOULD include an expiration time.  The server may
+include either an explicit expiration time or an issued timestamp and
+dynamically calculate the expiration time.  It is also unlikely that the client
+port number is the same on two different connections; validating the port is
+therefore unlikely to be successful.
 
 
 ### Address Validation Token Integrity {#token-integrity}
@@ -1527,14 +1559,6 @@ integrity protection against modification or falsification by clients.  Without
 integrity protection, malicious clients could generate or guess values for
 tokens that would be accepted by the server.  Only the server requires access to
 the integrity protection key for tokens.
-
-In TLS the address validation token is often bundled with the information that
-TLS requires, such as the resumption secret.  In this case, adding integrity
-protection can be delegated to the cryptographic handshake protocol, avoiding
-redundant protection.  If integrity protection is delegated to the cryptographic
-handshake, an integrity failure will result in immediate cryptographic handshake
-failure.  If integrity protection is performed by QUIC, QUIC MUST abort the
-connection if the integrity check fails with a PROTOCOL_VIOLATION error code.
 
 
 ## Path Validation {#migrate-validate}
@@ -2906,6 +2930,34 @@ frame.  Its format is identical to the PATH_CHALLENGE frame
 If the content of a PATH_RESPONSE frame does not match the content of a
 PATH_CHALLENGE frame previously sent by the endpoint, the endpoint MAY generate
 a connection error of type UNSOLICITED_PATH_RESPONSE.
+
+
+## NEW_TOKEN frame {#frame-new-token}
+
+An server sends a NEW_TOKEN frame (type=0x10) to provide the client a token to
+send in a the header of an Initial packet for a future 0-RTT connection.
+
+The NEW_TOKEN frame is as follows:
+
+~~~
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|        Token Length (i)  ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            Token (*)                        ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~~~
+
+The fields of a NEW_TOKEN frame are as follows:
+
+Token Length:
+
+: A variable-length integer specifying the length of the token in bytes.
+
+Token:
+
+: An opaque blob that the client may use with a future Initial packet.
 
 
 ## STREAM Frames {#frame-stream}
@@ -4328,6 +4380,9 @@ Issue and pull request numbers are listed with a leading octothorp.
 - Enable server to transition connections to a preferred address (#560,#1251).
 - No more stream 0.
 - EMPTY_ACK, CRYPTO_HS, and CRYPTO_CLOSE frames
+- Move stateless retry to the QUIC layer.
+- Added token fields to Initial packet header.
+- Added NEW_TOKEN frame.
 
 ## Since draft-ietf-quic-transport-10
 
