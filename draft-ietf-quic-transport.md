@@ -664,7 +664,7 @@ effort depending on implementation choices.
 
 The payload of this packet contains STREAM frames and could contain PADDING,
 ACK, PATH_CHALLENGE, or PATH_RESPONSE frames.  Handshake packets MAY contain
-CONNECTION_CLOSE frames if the handshake is unsuccessful.
+CRYPTO_CLOSE or CONNECTION_CLOSE frames if the handshake is unsuccessful.
 
 
 ## Protected Packets {#packet-protected}
@@ -913,6 +913,7 @@ explained in more detail as they are referenced later in the document.
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
 | 0x18        | CRYPTO            | {{frame-crypto}}            |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
+| 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
 {: #frame-types title="Frame Types"}
 
 # Life of a Connection
@@ -1956,7 +1957,7 @@ These states SHOULD persist for three times the current Retransmission Timeout
 
 An endpoint enters a closing period after initiating an immediate close
 ({{immediate-close}}).  While closing, an endpoint MUST NOT send packets unless
-they contain a CONNECTION_CLOSE or APPLICATION_CLOSE frame (see
+they contain a CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE frame (see
 {{immediate-close}} for details).
 
 In the closing state, only a packet containing a closing frame can be sent.  An
@@ -2021,7 +2022,8 @@ before the packet is received.
 
 ### Immediate Close
 
-An endpoint sends a closing frame, either CONNECTION_CLOSE or APPLICATION_CLOSE,
+An endpoint sends a closing frame,
+(CONNECTION_CLOSE, CRYPTO_CLOSE or APPLICATION_CLOSE)
 to terminate the connection immediately.  Either closing frame causes all
 streams to immediately become closed; open streams can be assumed to be
 implicitly reset.
@@ -2129,7 +2131,8 @@ Reset Token.
 
 A stateless reset is not appropriate for signaling error conditions.  An
 endpoint that wishes to communicate a fatal connection error MUST use a
-CONNECTION_CLOSE or APPLICATION_CLOSE frame if it has sufficient state to do so.
+CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE frame if it has
+sufficient state to do so.
 
 This stateless reset design is specific to QUIC version 1.  A server that
 supports multiple versions of QUIC needs to generate a stateless reset that will
@@ -3056,6 +3059,17 @@ a real ACK.
 A EMPTY_ACK frame has no content.  That is, a EMPTY_ACK frame consists of the
 single octet that identifies the frame as a EMPTY_ACK frame.
 
+## CRYPTO_CLOSE Frame {#frame-crypto-close}
+
+The CRYPTO_CLOSE frame (type=0x20) is used to indicate connection failures
+caused by the crypto handshake. It uses the same format as the
+CONNECTION_CLOSE frame ({{frame-connection-close}}), except that the
+error codes are specific to the crypto protocol in use. For TLS 1.3,
+the error code is simply the TLS alert number.
+
+Other than the error code space, the format and semantics of the
+CRYPTO_CLOSE frame are identical to the CONNECTION_CLOSE frame.
+
 
 # Packetization and Reliability {#packetization}
 
@@ -3127,8 +3141,8 @@ containing that information is acknowledged.
   STOP_SENDING frame, is sent until the receive stream enters either a "Data
   Recvd" or "Reset Recvd" state, see {{solicited-state-transitions}}.
 
-* Connection close signals, including those that use CONNECTION_CLOSE and
-  APPLICATION_CLOSE frames, are not sent again when packet loss is detected, but
+* Connection close signals, including those that use CONNECTION_CLOSE, CRYPTO_CLOSE,
+  and APPLICATION_CLOSE frames, are not sent again when packet loss is detected, but
   as described in {{termination}}.
 
 * The current connection maximum data is sent in MAX_DATA frames. An updated
@@ -3930,7 +3944,8 @@ frame that signals the error.  Where this specification identifies error
 conditions, it also identifies the error code that is used.
 
 A stateless reset ({{stateless-reset}}) is not suitable for any error that can
-be signaled with a CONNECTION_CLOSE, APPLICATION_CLOSE, or RST_STREAM frame.  A
+be signaled with a CONNECTION_CLOSE, CRYPTO_CLOSE, APPLICATION_CLOSE, or
+RST_STREAM frame.  A
 stateless reset MUST NOT be used by an endpoint that has the state necessary to
 send a frame on the connection.
 
@@ -3939,8 +3954,10 @@ send a frame on the connection.
 
 Errors that result in the connection being unusable, such as an obvious
 violation of protocol semantics or corruption of state that affects an entire
-connection, MUST be signaled using a CONNECTION_CLOSE or APPLICATION_CLOSE frame
-({{frame-connection-close}}, {{frame-application-close}}). An endpoint MAY close
+connection, MUST be signaled using a CONNECTION_CLOSE, CRYPTO_CLOSE, or
+APPLICATION_CLOSE frame
+({{frame-connection-close}}, {{frame-crypto-close}},
+{{frame-application-close}}). An endpoint MAY close
 the connection in this manner even if the error only affects a single stream.
 
 Application protocols can signal application-specific protocol errors using the
@@ -3949,20 +3966,21 @@ all those described in this document, are carried in a CONNECTION_CLOSE frame.
 Other than the type of error code they carry, these frames are identical in
 format and semantics.
 
-A CONNECTION_CLOSE or APPLICATION_CLOSE frame could be sent in a packet that is
-lost.  An endpoint SHOULD be prepared to retransmit a packet containing either
-frame type if it receives more packets on a terminated connection.  Limiting the
-number of retransmissions and the time over which this final packet is sent
+A CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE frame could be
+sent in a packet that is lost.  An endpoint SHOULD be prepared to
+retransmit a packet containing either frame type if it receives more
+packets on a terminated connection.  Limiting the number of
+retransmissions and the time over which this final packet is sent
 limits the effort expended on terminated connections.
 
-An endpoint that chooses not to retransmit packets containing CONNECTION_CLOSE
-or APPLICATION_CLOSE risks a peer missing the first such packet.  The only
-mechanism available to an endpoint that continues to receive data for a
-terminated connection is to use the stateless reset process
-({{stateless-reset}}).
+An endpoint that chooses not to retransmit packets containing
+CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE risks a peer
+missing the first such packet.  The only mechanism available to an
+endpoint that continues to receive data for a terminated connection is
+to use the stateless reset process ({{stateless-reset}}).
 
-An endpoint that receives an invalid CONNECTION_CLOSE or APPLICATION_CLOSE frame
-MUST NOT signal the existence of the error to its peer.
+An endpoint that receives an invalid CONNECTION_CLOSE, CRYPTO_CLOSE,
+or APPLICATION_CLOSE frame MUST NOT signal the existence of the error to its peer.
 
 
 ## Stream Errors
@@ -4312,7 +4330,7 @@ Issue and pull request numbers are listed with a leading octothorp.
 
 - Enable server to transition connections to a preferred address (#560,#1251).
 - No more stream 0.
-- EMPTY_ACK and CRYPTO frames
+- EMPTY_ACK, CRYPTO, and CRYPTO_CLOSE frames
 
 ## Since draft-ietf-quic-transport-10
 

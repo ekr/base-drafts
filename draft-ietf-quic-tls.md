@@ -321,8 +321,9 @@ data into the same packet.
 In general, the rules for which data can appear in packets of which
 encryption level are the same in QUIC as in TLS over TCP:
 
-u- Handshake messages MAY appear in packets of any encryption level.
-  [TODO: Alerts]
+- CRYPTO frames (Handshake messages) MAY appear in packets of any encryption level.
+- CONNECTION_CLOSE and CRYPTO_CLOSE MAY appear in packets of any encryption level
+  other than 0-RTT.
 - PADDING frames MAY appear in packets of any encryption level.
 - ACK frames MAY appear in packets of any encryption level, but
   MUST only acknowledge packets which appeared in that encryption
@@ -616,16 +617,10 @@ the state of all streams, including application state bound to those streams.
 
 ## TLS Errors
 
-[TODO(ekr@rtfm.com): This is not going to work any more. Perhaps use
-CONNECTION_CLOSE or APPLICATION_CLOSE?)]
-
-
-Errors in the TLS connection SHOULD be signaled using TLS alerts on stream 0.  A
-failure in the handshake MUST be treated as a QUIC connection error of type
-TLS_HANDSHAKE_FAILED.  Once the handshake is complete, an error in the TLS
-connection that causes a TLS alert to be sent or received MUST be treated as a
-QUIC connection error of type TLS_FATAL_ALERT_GENERATED or
-TLS_FATAL_ALERT_RECEIVED respectively.
+If TLS experiences an error, it MUST generate an appropriate alert
+as defined in {{TLS13}}; Section 6) and then provide it to QUIC,
+which sends the alert in a CRYPTO_CLOSE frame. All such alerts are
+"fatal".
 
 
 # QUIC Packet Protection {#packet-protection}
@@ -1192,31 +1187,10 @@ packet numbers MUST be free from side-channels that would reveal the packet
 number or its encoded size.
 
 
-# Error Codes {#errors}
-
-This section defines error codes from the error code space used in
-{{QUIC-TRANSPORT}}.
-
-The following error codes are defined when TLS is used for the crypto handshake:
-
-TLS_HANDSHAKE_FAILED (0x201):
-: The TLS handshake failed.
-
-TLS_FATAL_ALERT_GENERATED (0x202):
-: A TLS fatal alert was sent, causing the TLS connection to end prematurely.
-
-TLS_FATAL_ALERT_RECEIVED (0x203):
-: A TLS fatal alert was received, causing the TLS connection to end prematurely.
-
-
 # IANA Considerations
 
 This document does not create any new IANA registries, but it registers the
 values in the following registries:
-
-* QUIC Transport Error Codes Registry {{QUIC-TRANSPORT}} - IANA is to register
-  the three error codes found in {{errors}}, these are summarized in
-  {{iana-errors}}.
 
 * TLS ExtensionsType Registry
   {{!TLS-REGISTRIES=I-D.ietf-tls-iana-registry-updates}} - IANA is to register
@@ -1224,15 +1198,6 @@ values in the following registries:
   Assigning 26 to the extension would be greatly appreciated.  The Recommended
   column is to be marked Yes.  The TLS 1.3 Column is to include CH
   and EE.
-
-
-| Value | Error                     | Description           | Specification |
-|:------|:--------------------------|:----------------------|:--------------|
-| 0x201 | TLS_HANDSHAKE_FAILED      | TLS handshake failure | {{errors}}    |
-| 0x202 | TLS_FATAL_ALERT_GENERATED | Sent TLS alert        | {{errors}}    |
-| 0x203 | TLS_FATAL_ALERT_RECEIVED  | Receives TLS alert    | {{errors}}    |
-{: #iana-errors title="QUIC Transport Error Codes for TLS"}
-
 
 
 --- back
