@@ -313,8 +313,9 @@ the same keys even if TLS has already updated to newer keys.
 
 One important difference between TLS 1.3 records (used with TCP)
 and QUIC CRYPTO frames is that in QUIC multiple frames may appear
-in the same QUIC packet as long as they are associated with the
-same encryption level. For instance, an implementation might
+in the same QUIC packet as long as they are ACKing data from the
+same sequence number space [TODO: REF needed.]
+For instance, an implementation might
 bundle a Handshake message and an ACK for some Handshake
 data into the same packet.
 
