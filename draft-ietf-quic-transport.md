@@ -587,7 +587,8 @@ keys, but is not included in server packets.
 If the client received a Retry packet and is sending a second Initial packet,
 then it sets the Destination Connection ID to the value from the Source
 Connection ID in the Retry packet.  Changing Destination Connection ID also
-results in a change to the keys used to protect the Initial packet.
+results in a change to the keys used to protect the Initial packet. Subsequent
+Retry packets MUST NOT change the Destination Connection ID.
 
 The client populates the Source Connection ID field with a value of its choosing
 and sets the low bits of the ConnID Len field to match.
@@ -625,9 +626,28 @@ A Retry packet uses long headers with a type value of 0x7E.  It carries address
 validation token created by the server.  It is used by a server that wishes to
 perform a stateless retry (see {{stateless-retry}}).
 
+~~~
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     DCIL(8)   |      Original Destination Connection ID (*)   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Retry Token (*)
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~~~
+
 A Retry packet does not follow the same payload encryption scheme as the Initial
-and Handshake packets.  Instead, the payload of a Retry packet is an opaque
-buffer, consisting of a token that the server can use to validate the client's
+and Handshake packets. Instead, the payload of a Retry packet contains two
+values:
+
+Original Destination Connection ID:
+
+: The Destination Connection ID from the Initial packet that this
+Retry is in response to. The length of this field is given in DCIL.
+
+Retry Token:
+
+: An opaque token that the server can use to validate the client's
 address.
 
 The server populates the Destination Connection ID with the connection ID that
@@ -648,7 +668,12 @@ A Retry packet is never explicitly acknowledged in an ACK frame by a client.
 
 A server MUST only send a Retry in response to a client Initial packet.
 
-In response to receiving a Retry, the client should respond with a new Initial
+If the Original Destination Connection ID field does not match the
+Destination Connection ID from the Initial packet it sent, it MUST
+discard the packet. This prevents an off-path attacker from injecting
+a Retry packet with a bogus new Source Connection ID.
+
+Otherwise, it SHOULD respond with a new Initial
 packet with the Token field set to the token received in the Retry packet.
 
 
