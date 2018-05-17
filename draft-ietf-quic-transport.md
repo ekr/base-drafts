@@ -568,7 +568,8 @@ Header.
 Token Length:
 
 : A variable-length integer specifying the length of the Token field, in bytes.
-It may be zero if no token is present.
+It may be zero if no token is present. The server MUST send a zero-length
+token.
 
 Token:
 
@@ -1485,7 +1486,9 @@ packet.  The contents of this token are consumed by the server that generates
 the token, so there is no need for a single well-defined format.  A token could
 include information about the claimed client address (IP and port), a
 timestamp, and any other supplementary information the server will need to
-validate the token in the future.
+validate the token in the future. Servers SHOULD construct tokens in such
+a way that they cannot be forged, for instance by AEAD-encrypting them
+with a key known to the server.
 
 The Retry packet is sent to the client and then a legitimate client will
 respond with a token in the Initial packet's header when it attempts to continue
@@ -2943,7 +2946,7 @@ Token:
 ## STREAM Frames {#frame-stream}
 
 STREAM frames implicitly create a stream and carry stream data.  The STREAM
-frame takes the form 0b00100XXX (or the set of values from 0x20 to 0x27).  The
+frame takes the form 0b00010XXX (or the set of values from 0x10 to 0x17).  The
 value of the three low-order bits of the frame type determine the fields that
 are present in the frame.
 
