@@ -912,9 +912,10 @@ explained in more detail as they are referenced later in the document.
 | 0x0e        | PATH_CHALLENGE    | {{frame-path-challenge}}    |
 | 0x0f        | PATH_RESPONSE     | {{frame-path-response}}     |
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
-| 0x18        | CRYPTO_HS            | {{frame-crypto}}            |
+| 0x18        | CRYPTO_HS         | {{frame-crypto}}            |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
 | 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
+| 0x21        | MAX_CRYPTO_DATA   | {{frame-max-crypto-data}}   |
 {: #frame-types title="Frame Types"}
 
 # Life of a Connection
@@ -3074,6 +3075,39 @@ the error code is simply the TLS alert number.
 
 Other than the error code space, the format and semantics of the
 CRYPTO_CLOSE frame are identical to the CONNECTION_CLOSE frame.
+
+## MAX_CRYPTO_DATA Frame {#frame-max-crypto-data}
+
+The MAX_CRYPTO_DATA frame (type=0x21) is an informational frame used to indicate
+the maximum buffer size the receiver will allocate for CRYPTO_HS data in order
+to complete the handshake.  In QUIC we assume each endpoint maintains its own
+limit for how much data it is willing to buffer during the handshake.
+MAX_CRYPTO_DATA allows endpoints to tell their peers about this limit.  This
+limit could normally come from the cryptographic handshake protocol
+implemenation.  If the sender needs to send more bytes than advertised in
+MAX_CRYPTO_DATA in order to complete the handshake, it would know that the
+handshake would fail.  Receivers are expected to advertise a reasonable limit
+which would allow the use of reasonable size certificates to be able to complete
+the handshakes.
+
+Unlike the MAX_DATA frame {{frame-max-data}}, this frame is an informational.
+It does not need to be sent, and does not need to be processed.  It can be sent
+to provide information about its buffer size.  Traditional flow control is not
+very useful for the CRYPTO_HS frames during the handshake.  For STREAM frames,
+the flow control is entirely controlled by QUIC since the data is owned by QUIC.
+However for the CRYPTO frames there are two layers of buffering involved.  Onc
+QUIC gives the data to the cryptographic protocol, for example, TLS, TLS may
+also buffer this data, since 1 cryptographic message may span multiple packets.
+The TLS implementation would also set a limit on its own buffering of TLS
+messages in order to prevent unbounded memory usage.  Thus the real owner of the
+buffer in this case is the cryptographic protocol.  If QUIC sets a limit on the
+size of buffer, and it is less than the TLS buffer size, data would still
+accumulate in the TLS buffers.  Conversly it would not be logical to set this
+limit to be greater than the size of the TLS buffer.
+
+The purpose of this frame is to provide a facility to debug issues during the
+handshake and also allow future extensibility of the protocol to larger message
+sizes.  A sender SHOULD send the MAX_CRYPTO_DATA frame.
 
 
 # Packetization and Reliability {#packetization}
