@@ -540,11 +540,11 @@ agree on cryptographic keys.  The cryptographic handshake is carried in Initial
 All these packets use the long header and contain the current QUIC version in
 the version field.
 
-In order to prevent tampering by version-unaware middleboxes, Initial packets
-are protected with a connection- and version-specific key, as described in
-{{QUIC-TLS}} called Initial keys.  This protection does not provide
-confidentiality or integrity against on-path attackers, but provides some level
-of protection against off-path attackers.
+In order to prevent tampering by version-unaware middleboxes, Initial
+packets are protected with a connection- and version-specific keys
+(Initial keys) as described in {{QUIC-TLS}}.  This protection does not
+provide confidentiality or integrity against on-path attackers, but
+provides some level of protection against off-path attackers.
 
 
 ### Initial Packet {#packet-initial}
@@ -592,9 +592,9 @@ and sets the low bits of the ConnID Len field to match.
 If the client has a suitable token available from a previous connection,
 it SHOULD populate the Token field.
 
-A server sends its first Initial packet in response to a Client Initial.  A
+A server sends its first Initial packet in response to a client Initial.  A
 server may send multiple Initial packets.  The cryptographic key exchange could
-require multiple round trips or we might perform retransmissions of this data.
+require multiple round trips or retransmissions of this data.
 
 The Destination Connection ID field in the server's Initial packet
 contains a connection ID that is chosen by the recipient of the packet
@@ -602,7 +602,7 @@ contains a connection ID that is chosen by the recipient of the packet
 ID that the sender of the packet wishes to use (see
 {{connection-id}}).
 
-On receiving the first Server Initial packet the client uses the Source
+On first receiving the server Initial packet the client uses the Source
 Connection ID supplied by the server as the Destination Connection ID for
 subsequent packets.
 
@@ -615,13 +615,14 @@ token provided in the Retry.
 
 The first Initial packet contains a packet number of 0. Each packet sent after
 the Initial packet is associated with a packet number space and its packet
-number increases monotonically in that space, see ({{packet-numbers}}).
+number increases monotonically in that space (see {{packet-numbers}}).
 
 The payload of an Initial packet conveys a CRYPTO_HS frame (or frames)
-containing a cryptographic handshake message.  This CRYPTO_HS frame
-always begins at an offset of 0 (see {{handshake}}). The client's complete
-cryptographic handshake message MUST fit in a single packet (see
-{{handshake}}).
+containing a cryptographic handshake message. The first CRYPTO_HS frame
+send always begins at an offset of 0 (see {{handshake}}). The client's complete
+first message MUST fit in a single packet (see {{handshake}}). Note that if
+the server sends a HelloRetryRequest, the client will send a second Initial
+packet with a CRYPTO_HS frame starting immediately after the first one.
 
 The payload of a UDP datagram carrying the Initial packet MUST be expanded to at
 least 1200 octets (see {{packetization}}), by adding PADDING frames to the
@@ -822,7 +823,7 @@ maintains a separate packet number for sending and receiving.
 Packet numbers are divided into 3 spaces in QUIC:
 
 - Initial space: All Initial packets {{packet-initial}} are in this space.
-- Handshake space: All handshake packets {{packet-handshake}} are in this space.
+- Handshake space: All Handshake packets {{packet-handshake}} are in this space.
 - Application data space: All 0-RTT and 1-RTT encrypted packets
   {{packet-protected}} are in this space.
 
@@ -835,7 +836,7 @@ Similarly Handshake packets can only be sent and acked in Handshake packets.
 
 This enforces cryptographic separation between the data sent in the
 different packet sequence number spaces.  As a result, each packet number space
-can start at the same packet number 0.  Each subsequent packets sent in the
+starts at packet number 0.  Subsequent packet sent in the
 same packet number space MUST increase the packet number by at least one.
 
 0-RTT and 1-RTT data exist in the same packet number space to make loss recovery
@@ -962,7 +963,7 @@ explained in more detail as they are referenced later in the document.
 | 0x0e        | PATH_CHALLENGE    | {{frame-path-challenge}}    |
 | 0x0f        | PATH_RESPONSE     | {{frame-path-response}}     |
 | 0x10 - 0x17 | STREAM            | {{frame-stream}}            |
-| 0x18        | CRYPTO_HS          | {{frame-crypto}}           |
+| 0x18        | CRYPTO_HS         | {{frame-crypto}}            |
 | 0x19        | EMPTY_ACK         | {{frame-empty-ack}}         |
 | 0x20        | CRYPTO_CLOSE      | {{frame-crypto-close}}      |
 | 0x21        | NEW_TOKEN         | {{frame-new-token}}         |
@@ -1181,8 +1182,9 @@ The first client packet of the cryptographic handshake protocol MUST fit within
 a 1232 octet QUIC packet payload.  This includes overheads that reduce the space
 available to the cryptographic handshake protocol.
 
-The CRYPTO_HS frame can be sent in different packet number spaces.  With each
-packet number space, the CRYPTO_HS frame resets its offset to 0.
+The CRYPTO_HS frame can be sent in different packet number spaces.
+CRYPTO_HS frames in each packet number space carry a separate sequence
+of handshake data starting from an offset of 0.
 
 Details of how TLS is integrated with QUIC are provided in {{QUIC-TLS}}.
 
@@ -1297,7 +1299,7 @@ initial_max_bidi_streams (0x0002):
   MAX_STREAM_ID frame is sent.  Setting this parameter is equivalent to sending
   a MAX_STREAM_ID ({{frame-max-stream-id}}) immediately after completing the
   handshake containing the corresponding Stream ID. For example, a value of 0x05
-  would be equivalent to receiving a MAX_STREAM_ID containing 20 when received
+  would be equivalent to receiving a MAX_STREAM_ID containing 16 when received
   by a client or 17 when received by a server.
 
 initial_max_uni_streams (0x0008):
@@ -1515,7 +1517,7 @@ migration, see {{migrate-validate}}.
 QUIC uses token-based address validation.  Any time the server wishes
 to validate a client address, it provides the client with a token.  As
 long as the token's authenticity can be checked (see
-{{token-integrity}}), if the client is able to return that token, it
+{{token-integrity}}) and if the client is able to return that token, it
 proves to the server that it received the token.
 
 If QUIC decides to request address validation for the current
@@ -2061,11 +2063,10 @@ before the packet is received.
 
 ### Immediate Close
 
-An endpoint sends a closing frame,
-(CONNECTION_CLOSE, CRYPTO_CLOSE or APPLICATION_CLOSE)
-to terminate the connection immediately.  Either closing frame causes all
-streams to immediately become closed; open streams can be assumed to be
-implicitly reset.
+An endpoint sends a closing frame, (CONNECTION_CLOSE, CRYPTO_CLOSE or
+APPLICATION_CLOSE) to terminate the connection immediately.  Any
+closing frame causes all streams to immediately become closed; open
+streams can be assumed to be implicitly reset.
 
 After sending a closing frame, endpoints immediately enter the closing state.
 During the closing period, an endpoint that sends a closing frame SHOULD respond
@@ -2878,7 +2879,7 @@ if the sender includes them in packets with non-ACK frames.  A sender SHOULD
 bundle ACK frames with other frames when possible.
 
 Implementations must be aware of the packet number space of the packet being
-transmitted and only include the ACK frames of the packets from that space.
+transmitted and only acknowledge packets from that space.
 
 To limit receiver state or the size of ACK frames, a receiver MAY limit the
 number of ACK blocks it sends.  A receiver can do this even without receiving
@@ -2903,7 +2904,7 @@ messages are delayed or lost.  Note that the same limitation applies to other
 data sent by the server protected by the 1-RTT keys.
 
 Implementations SHOULD aggressively ACK packets containing CRYPTO_HS frames.
-See {{QUIC-RECOVERY}}; Section 3.5.1.
+See {{QUIC-RECOVERY}}, Section 3.5.1.
 
 ## PATH_CHALLENGE Frame {#frame-path-challenge}
 
@@ -2949,7 +2950,7 @@ a connection error of type UNSOLICITED_PATH_RESPONSE.
 
 ## NEW_TOKEN frame {#frame-new-token}
 
-An server sends a NEW_TOKEN frame (type=0x10) to provide the client a token to
+An server sends a NEW_TOKEN frame (type=0x21) to provide the client a token to
 send in a the header of an Initial packet for a future 0-RTT connection.
 
 The NEW_TOKEN frame is as follows:
@@ -3068,7 +3069,6 @@ The CRYPTO_HS frame (type=0x18) is used to transmit cryptographic handshake
 messages. It can be sent in all packet types. The CRYPTO_HS frame offers the
 cryptographic protocol an in-order stream of bytes.
 
-
 A CRYPTO_HS frame is shown below.
 
 ~~~
@@ -3100,16 +3100,15 @@ Crypto Data:
 
 : The cryptographic message data.
 
-The CRYPTO_HS stream starts off at an offset of 0.  At each packet
-number space, the sender resets the CRYPTO_HS stream to an offset of
-0.  This implies that each encryption level is treated as a separate
-CRYPTO_HS stream of data.
+There is a separate flow of cryptographic handshake data in each
+encryption level, each of which starts at an offset of 0. This implies
+that each encryption level is treated as a separate CRYPTO_HS stream
+of data.
 
-While CRYPTO_HS the frame looks a lot like a STREAM frames, it should
-not be confused with a STREAM frame.  Unlike a STREAM frame which
-carries a single stream of data, CRYPTO_HS frames carry different
-streams of data in different packet number spaces.  CRYPTO_HS frames
-also lack a FIN bit.
+Unlike STREAM frames, which include a Stream ID indicating to which
+stream the data belongs, the CRYPTO_HS frame carries data for a single
+stream per encryption level. The stream does not have an explicit
+end, so CRYPTO_HS frames do not have a FIN bit.
 
 
 ## EMPTY_ACK  Frame {#frame-empty-ack}
@@ -3117,11 +3116,11 @@ also lack a FIN bit.
 The EMPTY_ACK frame (type=0x19) is used to transmit loss recovery information
 during the cryptographic handshake before keys are established.  The EMPTY_ACK
 frame is used to assist loss recovery, see {{QUIC-RECOVERY}} by indicating that
-the receiver got some data that it was not able to decrypt and hence cannot send
+the receiver received a packet that it was not able to decrypt and hence cannot send
 a real ACK.
 
-A EMPTY_ACK frame has no content.  That is, a EMPTY_ACK frame consists of the
-single octet that identifies the frame as a EMPTY_ACK frame.
+An EMPTY_ACK frame has no content.  That is, an EMPTY_ACK frame consists of the
+single octet that identifies the frame as an EMPTY_ACK frame.
 
 ## CRYPTO_CLOSE Frame {#frame-crypto-close}
 
@@ -3786,9 +3785,7 @@ change if it is sent multiple times; an endpoint MAY treat receipt of a changed
 octet as a connection error of type PROTOCOL_VIOLATION.
 
 An endpoint MUST NOT send data on any stream without ensuring that it is within
-the data limits set by its peer.  This rule applies even for 0-RTT handshakes
-where the remembered value of MAX_STREAM_DATA would not permit sending a full
-initial cryptographic handshake message.
+the data limits set by its peer. 
 
 Flow control is described in detail in {{flow-control}}, and congestion control
 is described in the companion document {{QUIC-RECOVERY}}.
@@ -4014,28 +4011,28 @@ The most appropriate error code ({{error-codes}}) SHOULD be included in the
 frame that signals the error.  Where this specification identifies error
 conditions, it also identifies the error code that is used.
 
-A stateless reset ({{stateless-reset}}) is not suitable for any error that can
-be signaled with a CONNECTION_CLOSE, CRYPTO_CLOSE, APPLICATION_CLOSE, or
-RST_STREAM frame.  A
-stateless reset MUST NOT be used by an endpoint that has the state necessary to
-send a frame on the connection.
+A stateless reset ({{stateless-reset}}) is not suitable for any error
+that can be signaled with a CONNECTION_CLOSE, CRYPTO_CLOSE,
+APPLICATION_CLOSE, or RST_STREAM frame.  A stateless reset MUST NOT be
+used by an endpoint that has the state necessary to send a frame on
+the connection.
 
 
 ## Connection Errors
 
-Errors that result in the connection being unusable, such as an obvious
-violation of protocol semantics or corruption of state that affects an entire
-connection, MUST be signaled using a CONNECTION_CLOSE, CRYPTO_CLOSE, or
-APPLICATION_CLOSE frame
+Errors that result in the connection being unusable, such as an
+obvious violation of protocol semantics or corruption of state that
+affects an entire connection, MUST be signaled using a
+CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE frame
 ({{frame-connection-close}}, {{frame-crypto-close}},
-{{frame-application-close}}). An endpoint MAY close
-the connection in this manner even if the error only affects a single stream.
+{{frame-application-close}}). An endpoint MAY close the connection in
+this manner even if the error only affects a single stream.
 
-Application protocols can signal application-specific protocol errors using the
-APPLICATION_CLOSE frame.  Errors that are specific to the transport, including
-all those described in this document, are carried in a CONNECTION_CLOSE frame.
-Other than the type of error code they carry, these frames are identical in
-format and semantics.
+Application protocols can signal application-specific protocol errors
+using the APPLICATION_CLOSE frame.  Errors that are specific to the
+transport, including all those described in this document, are carried
+in a CONNECTION_CLOSE frame.  Other than the type of error code they
+carry, these frames are identical in format and semantics.
 
 A CONNECTION_CLOSE, CRYPTO_CLOSE, or APPLICATION_CLOSE frame could be
 sent in a packet that is lost.  An endpoint SHOULD be prepared to
