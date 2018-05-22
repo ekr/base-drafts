@@ -427,13 +427,13 @@ losing the client's Initial, but receiving the 0-RTT packets.  Below are
 three different optimizations in increasing complexity that minimize
 handshake latency.
 
-### Empty ACK frames
+### EMPTY_ACK frames
 
-The EMPTY_ACK frame enables faster recovery of lost Initial and Handshake
-packets when the only other outstanding packets are undecryptable.
-In that case, the peer can’t decrypt the packet or packet number,
-but they do know a packet for a QUIC connection of a supported version was
-received.
+The EMPTY_ACK frame indicates a packet for the connection was received,
+but it could not be processed, because the decryption keys are not yet
+available. EMPTY_ACK enables faster recovery of lost Initial
+and Handshake packets when the only other outstanding packets are
+undecryptable.
 
 The receiver SHOULD send an EMPTY_ACK frame soon (e.g., 1ms) after
 undecryptable packets are received, even if those received packets are
@@ -441,6 +441,7 @@ not buffered for later decryption.  The small delay allows for cases when
 0-RTT packets are reordered in front of the Initial, which is not uncommon
 on networks that prioritize small packets.  The receiver should limit the
 number of EMPTY_ACK frames sent to one per packet number space per RTT.
+If no RTT is known, only one per encryption level should be sent.
 
 When an EMPTY_ACK frame is received, a sender should immediately
 retransmit the missing handshake packet(s) as though the handshake timer
@@ -464,32 +465,33 @@ packets in that space were lost without waiting for timeouts.
 
 This optimization is particularly useful when:
 
- * Retransmitting the client’s Initial, which must be padded to a full
+ * Sending the client’s Initial, which must be padded to a full
    sized packet, so the datagram typically has extra space to retransmit
    some outstanding 0-RTT data.
- * The server sends 1-RTT data soon after the final handshake flight
-   (containing the server Finished) and can proactively retransmit an empty
-   CRYPTO_HS frame bundled with one or more 1-RTT packets.
  * The clients sends 1-RTT data soon after the final TLS flight
    (containing the client Finished) and can proactively retransmit the
    final client flight with one or more 1-RTT packets.
 
 ### Implicit Acknowledgements
 
-Handshake data may be cancelled by handshake state transitions.
+Handshake data may be cancelled when packets at a higher encryption
+level are processed, as this demonstrates the peer has received the
+handshake data at the prior encryption level.
 
 In particular:
 
- * A peer processing data in a HANDSHAKE packet indicates
-   the INITIAL packet(s) have been delivered.
- * A peer processing 1-RTT packets indicates all CRYPTO_HS data in
+ * Processing data in a HANDSHAKE packet indicates the INITIAL
+   packet(s) have been delivered.
+ * A Server processing 1-RTT packets indicates all CRYPTO_HS data in
    HANDSHAKE packets has been delivered.
+ * Processing 0-RTT packets does not indicate the peer has received
+   any handshake data.
 
 ## Generating Acknowledgements
 
 An ACK frame acknowledges packets from only one packet number space.
-It may be optimal to store multiple ACK frames at once until the
-handshake is complete.
+Received packets from each packet number space should be stored
+separately while multiple spaces have outstanding data.
 
 QUIC SHOULD delay sending acknowledgements in response to packets,
 but MUST NOT excessively delay acknowledgements of packets containing
@@ -658,7 +660,7 @@ sent_packets:
   was sent, a boolean indicating whether the packet is ack only, and a bytes
   field indicating the packet's size.  sent_packets is ordered by packet
   number, and packets remain in sent_packets until acknowledged or lost.
-  A sent_packets datastructure is maintained per packet number space, and ack
+  A sent_packets data structure is maintained per packet number space, and ack
   processing only applies to a single space.
 
 ### Initialization
