@@ -310,11 +310,11 @@ computed and the alarm SHOULD be set for twice the newly computed smoothed RTT.
 
 #### Retry
 
-A RETRY packet causes the content of the client's INITIAL packet to be
+A RETRY packet causes the content of the client's Initial packet to be
 immediately retransmitted along with the token present in the RETRY.
 
-The RETRY indicates that the INITIAL was received but not processed.
-It MUST NOT be treated as an acknowledgment for the INITIAL,
+The RETRY indicates that the Initial was received but not processed.
+It MUST NOT be treated as an acknowledgment for the Initial,
 but it MAY be used for an RTT measurement.
 
 ### Tail Loss Probe {#tlp}
@@ -480,10 +480,10 @@ handshake data at the prior encryption level.
 
 In particular:
 
- * Processing data in a HANDSHAKE packet indicates the INITIAL
+ * Processing data in a Handshake packet indicates the Initial
    packet(s) have been delivered.
  * A Server processing 1-RTT packets indicates all CRYPTO_HS data in
-   HANDSHAKE packets has been delivered.
+   Handshake packets has been delivered.
  * Processing 0-RTT packets does not indicate the peer has received
    any handshake data.
 
@@ -737,7 +737,7 @@ Pseudocode for OnAckReceived and UpdateRtt follow:
 
 ~~~
   OnEmptyAckReceived():
-    // TODO: This is incorrect for the INITIAL/HANDSHAKE
+    // TODO: This is incorrect for the Initial/Handshake
     if (time_of_last_sent_handshake_packet <
           time_of_last_sent_retransmittable_packet):
       RetransmitAllHandshakeData();
