@@ -499,12 +499,12 @@ that transmission.
 Client                                                    Server
 
 Get Handshake
-                      Initial ------------>
+               Client Initial ------------>
 Rekey out to 0-RTT Keys
                       0-RTT -------------->
                                               Handshake Received
                                                    Get Handshake
-                      <------------ Initial
+                      <------------ Server Initial
                                           Rekey in to 0-RTT keys
                                               Handshake Received
                                       Rekey in to Handshake keys
@@ -659,9 +659,9 @@ exposing TLS record protection keys.
 
 ### Initial Secrets {#initial-secrets}
 
-Packets that carry the TLS handshake (Initial and Handshake) are protected with
-a secret derived from the Destination Connection ID field from the client's
-Initial packet.  Specifically:
+Packets that carry the TLS handshake (Client Initial, Server Initial and
+Handshake) are protected with a secret derived from the Destination Connection
+ID field from the Client Initial packet. Specifically:
 
 ~~~
 initial_salt = 0x9c108f98520a5c5c32968e950e8a2c5fe06d6c38
@@ -957,7 +957,7 @@ an on-path attacker could modify the ACK to make it appear that
 a packet had not been received or to create a false impression of
 the state of the connection (e.g., by modifying the ACK Delay).
 Implementations SHOULD use caution in relying on any data which
-is contained in Initial packets that is not otherwise authenticated.
+is contained in initial packets that is not otherwise authenticated.
 
 It is also possible for the attacker to tamper with data that
 is carried in Handshake packets, but because that tampering

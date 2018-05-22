@@ -310,11 +310,11 @@ computed and the alarm SHOULD be set for twice the newly computed smoothed RTT.
 
 #### Retry
 
-A RETRY packet causes the content of the client's INITIAL packet to be
-immediately retransmitted along with the token present in the RETRY.
+A Retry packet causes the content of the Client Initial packet to be
+immediately retransmitted along with the token present in the Retry.
 
-The RETRY indicates that the INITIAL was received but not processed.
-It MUST NOT be treated as an acknowledgment for the INITIAL,
+The RETRY indicates that the Client Initial was received but not processed.
+It MUST NOT be treated as an acknowledgment for the Client Initial,
 but it MAY be used for an RTT measurement.
 
 ### Tail Loss Probe {#tlp}
@@ -423,14 +423,14 @@ There are cases where one may be able to gain recovery information from
 acknowledgements of packets in another packet number space, but they rely
 on complex assumptions about the peer’s processing and acknowledgement
 algorithms.  Even those are unable to quickly recover from cases such as
-losing the client's Initial, but receiving the 0-RTT packets.  Below are
+losing the Client Initial, but receiving the 0-RTT packets.  Below are
 three different optimizations in increasing complexity that minimize
 handshake latency.
 
 ### Empty ACK frames
 
-The EMPTY_ACK frame enables faster recovery of lost Initial and Handshake
-packets when the only other outstanding packets are undecryptable.
+The EMPTY_ACK frame enables faster recovery of lost Client Initial and
+Handshake packets when the only other outstanding packets are undecryptable.
 In that case, the peer can’t decrypt the packet or packet number,
 but they do know a packet for a QUIC connection of a supported version was
 received.
@@ -438,9 +438,9 @@ received.
 The receiver SHOULD send an EMPTY_ACK frame soon (e.g., 1ms) after
 undecryptable packets are received, even if those received packets are
 not buffered for later decryption.  The small delay allows for cases when
-0-RTT packets are reordered in front of the Initial, which is not uncommon
-on networks that prioritize small packets.  The receiver should limit the
-number of EMPTY_ACK frames sent to one per packet number space per RTT.
+0-RTT packets are reordered in front of the Client Initial, which is not
+uncommon on networks that prioritize small packets.  The receiver should limit
+the number of EMPTY_ACK frames sent to one per packet number space per RTT.
 
 When an EMPTY_ACK frame is received, a sender should immediately
 retransmit the missing handshake packet(s) as though the handshake timer
@@ -464,7 +464,7 @@ packets in that space were lost without waiting for timeouts.
 
 This optimization is particularly useful when:
 
- * Retransmitting the client’s Initial, which must be padded to a full
+ * Retransmitting the Client Initial, which must be padded to a full
    sized packet, so the datagram typically has extra space to retransmit
    some outstanding 0-RTT data.
  * The server sends 1-RTT data soon after the final handshake flight
@@ -480,10 +480,10 @@ Handshake data may be cancelled by handshake state transitions.
 
 In particular:
 
- * A peer processing data in a HANDSHAKE packet indicates
-   the INITIAL packet(s) have been delivered.
+ * A peer processing data in a Handshake packet indicates the Client Initial
+   or Server Initial packet(s), respectively, have been delivered.
  * A peer processing 1-RTT packets indicates all CRYPTO_HS data in
-   HANDSHAKE packets has been delivered.
+   Handshake packets has been delivered.
 
 ## Generating Acknowledgements
 
