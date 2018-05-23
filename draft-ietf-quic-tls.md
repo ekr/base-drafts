@@ -159,7 +159,7 @@ Internally, TLS is a layered protocol, with the structure shown below:
 ~~~~
 
 Each upper layer (handshake, alerts, and application data) is carried as
-a series of typed TLS *records*. Records are individually cryptographically
+a series of typed TLS records. Records are individually cryptographically
 protected and then transmitted over a reliable transport (typically TCP)
 which provides sequencing and guaranteed delivery.
 
@@ -324,20 +324,20 @@ data into the same packet.
 In general, the rules for which data can appear in packets of which
 encryption level are the same in QUIC as in TLS over TCP:
 
-- CRYPTO frames MAY appear in packets of any encryption level.
+- CRYPTO_HS frames MAY appear in packets of any encryption level.
 - CONNECTION_CLOSE and CRYPTO_CLOSE MAY appear in packets of any
   encryption level other than 0-RTT.
-- PADDING frames MAY appear in packets of any encryption level.
+- PADDING and PING frames MAY appear in packets of any encryption level.
 - ACK frames MAY appear in packets of any encryption level, but
   MUST only acknowledge packets which appeared in that encryption
   level.
-- STREAM frames MAY appear in the 0-RTT and 1-RTT levels.
+- STREAM frames MUST ONLY appear in the 0-RTT and 1-RTT levels.
 - All other frame types MUST only appear at the 1-RTT levels.
 
 Because packets may be reordered on the wire, QUIC uses the packet
 type to indicate which level a given packet was encrypted
 under [TODO: Table needed here?]. When multiple packets of
-different encryptions need to be sent, endpoints SHOULD use
+different encryption levels need to be sent, endpoints SHOULD use
 compound packets to send them in the same UDP datagram.
 
 
@@ -349,7 +349,8 @@ The integration of QUIC with a TLS handshake is shown in more detail in
 ~~~
 Client                                                   Server
 
-<CRYPTO_HS[ClientHello]>  --------->
+<CRYPTO_HS[
+        ClientHello]>  --------->
 
 (STREAM[0-RTTData])    --------->
 
@@ -358,13 +359,15 @@ Client                                                   Server
 
                        <---------  {CRYPTO_HS[
                                            EncryptedExtensions,
-                                                Certificate,
-                                          CertificateVerify,
-                                                  Finished]}
-{ACK,
- CRYPTO_HS[Finished]}     --------->
+                                                   Certificate,
+                                             CertificateVerify,
+                                                     Finished]}
 
-[Any frames]              <-------->               [Any frames]
+                      <---------         {STREAM[0.5-RTT Data])
+{ACK,
+ CRYPTO_HS[Finished]} --------->
+
+[Any frames]          <-------->                   [Any frames]
 
 ~~~
 {: #quic-tls-handshake title="QUIC Handshake"}
@@ -420,12 +423,12 @@ transmitted to the peer in CRYPTO_HS frames. When TLS provides handshake
 octets to be sent, they are appended to the current flow and
 will eventually be transmitted under the then-current key.
 
-When an endpoint receives a CRYPTO_HS frame from the network, it proceeds
-as follows:
+When an endpoint receives a packet containing a CRYPTO_HS frame from
+the network, it proceeds as follows:
 
 - If the packet was in the current receiving encryption level, sequence
   the data into the input flow as usual. As with STREAM frames,
-  The offset is used to find the proper location in the data sequence.
+  the offset is used to find the proper location in the data sequence.
   If the result of this process is that new data is available, then
   it is delivered to TLS.
 
@@ -470,7 +473,7 @@ Important:
 ### Encryption Level Changes
 
 At each change of encryption level in either direction, TLS signals
-QUIC, providing the new level and the encryption keys. It will also
+QUIC, providing the new level and the encryption keys.
 These events are not asynchronous, they always occur immediately after TLS is
 provided with new handshake octets, or after TLS produces handshake octets.
 
@@ -500,26 +503,26 @@ Client                                                    Server
 
 Get Handshake
                       Initial ------------>
-Rekey out to 0-RTT Keys
+Rekey tx to 0-RTT Keys
                       0-RTT -------------->
                                               Handshake Received
                                                    Get Handshake
                       <------------ Initial
-                                          Rekey in to 0-RTT keys
+                                          Rekey rx to 0-RTT keys
                                               Handshake Received
-                                      Rekey in to Handshake keys
+                                      Rekey rx to Handshake keys
                                                    Get Handshake
                      <----------- Handshake
-                                         Rekey out to 1-RTT keys
+                                          Rekey tx to 1-RTT keys
 Handshake Received
-Rekey in to Handshake keys
+Rekey rx to Handshake keys
 Handshake Received
 Get Handshake
 Handshake Complete
-Rekey out to 1-RTT keys
+Rekey tx to 1-RTT keys
                       Handshake ---------->
                                               Handshake Received
-                                          Rekey in to 1-RTT keys
+                                          Rekey rx to 1-RTT keys
                                                    Get Handshake
                                               Handshake Complete
                      <--------------- 1-RTT
@@ -622,7 +625,7 @@ as well as for a stateless round trip check. From the perspective of
 QUIC, this just looks like additional messages carried in the Initial
 encryption level. Although it is in principle possible to use this
 feature for address verification in QUIC, QUIC implementations SHOULD
-instead use the RETRY feature ([TODO: REF]).
+instead use the Retry feature ({{QUIC-TRANSPORT}}; Section 4.4.2)).
 
 
 ## TLS Errors
@@ -635,7 +638,7 @@ which sends the alert in a CRYPTO_CLOSE frame. All such alerts are
 
 # QUIC Packet Protection {#packet-protection}
 
-As with TLS over TCP QUIC encrypts packets with keys derived from the TLS
+As with TLS over TCP, QUIC encrypts packets with keys derived from the TLS
 handshake, using the AEAD algorithm negotiated by TLS.
 
 
@@ -659,7 +662,7 @@ exposing TLS record protection keys.
 
 ### Initial Secrets {#initial-secrets}
 
-Packets that carry the TLS handshake (Initial and Handshake) are protected with
+Initial packets are protected with
 a secret derived from the Destination Connection ID field from the client's
 Initial packet.  Specifically:
 
@@ -836,7 +839,7 @@ the protocol.
 A client MUST only use 0-RTT keys to protect data that is idempotent.  A client
 MAY wish to apply additional restrictions on what data it sends prior to the
 completion of the TLS handshake.  A client otherwise treats 0-RTT keys as
-equivalent to 1-RTT keys, except that it ACKs MUST only be sent with
+equivalent to 1-RTT keys, except that ACKs for that data MUST only be sent with
 1-RTT keys.
 
 A client that receives an indication that its 0-RTT data has been accepted by a
@@ -845,9 +848,6 @@ messages.  A client SHOULD stop sending 0-RTT data if it receives an indication
 that 0-RTT data has been rejected.
 
 A server MUST NOT use 0-RTT keys to protect packets.
-
-If a server rejects 0-RTT, then the TLS stream will not include any TLS records
-protected with 0-RTT keys.
 
 : 0-RTT data can be acknowledged by the server as it receives it, but any
   packets containing acknowledgments of 0-RTT data cannot have packet protection
@@ -861,14 +861,14 @@ protected with 0-RTT keys.
 Due to reordering and loss, protected packets might be received by an endpoint
 before the final TLS handshake messages are received.  A client will be unable
 to decrypt 1-RTT packets from the server, whereas a server will be able to
-decrypt 1-RTT packets from the client.
-
-Packets protected with 1-RTT keys MAY be stored and later decrypted and used
-once the handshake is complete.  A server MUST NOT use 1-RTT protected packets
+decrypt 1-RTT packets from the client. However,
+a server MUST NOT process data from incoming 1-RTT protected packets
 before verifying either the client Finished message or - in the case that the
 server has chosen to use a pre-shared key - the pre-shared key binder (see
 Section 4.2.8 of {{!TLS13}}).  Verifying these values provides the server with
 an assurance that the ClientHello has not been modified.
+Packets protected with 1-RTT keys MAY be stored and later decrypted and used
+once the handshake is complete.
 
 A server could receive packets protected with 0-RTT keys prior to receiving a
 TLS ClientHello.  The server MAY retain these packets for later decryption in
@@ -885,14 +885,13 @@ Finished message if its response depends on client authentication.
 Once the 1-RTT keys are established and the short header is in use, it
 is possible to update the keys, for instance because of limits on AEAD
 encryption.  The KEY_PHASE bit in the short header is used to indicate
-whether key updates have occurred. The KEY_PHASE bit (the 0x20 bit of
-the QUIC short header) is initially set to 0 and then inverted with
-each key update {{key-update}}.
+whether key updates have occurred. The KEY_PHASE bit is initially set
+to 0 and then inverted with each key update {{key-update}}.
 
-The KEY_PHASE bit allows a recipient to
-detect a change in keying material without necessarily needing to receive the
-first packet that triggered the change.  An endpoint that notices a changed
-KEY_PHASE bit can update keys and decrypt the packet that contains the changed
+The KEY_PHASE bit allows a recipient to detect a change in keying
+material without necessarily needing to receive the first packet that
+triggered the change.  An endpoint that notices a changed KEY_PHASE
+bit can update keys and decrypt the packet that contains the changed
 bit, see {{key-update}}.
 
 An endpoint MUST NOT initiate more than one key update at a time.  A new key
@@ -1027,13 +1026,14 @@ when the handshake completes.
 
 ## QUIC Max Crypto Data Extension {#max_crypto_data}
 
-When QUIC provides TLS messages via the CRYPTO_HS frame, one TLS message may be
-fragmented across different packets.  Thus TLS might have to buffer data.  TLS
-implementations may choose to limit the data they buffer before the handshake is
-completed and close the connection on receiving too much data.
+When QUIC provides TLS messages via the CRYPTO_HS frame, one TLS
+message may be fragmented across different packets. TLS
+implementations may choose to limit the data they buffer before the
+handshake is completed and close the connection on receiving too much
+data.
 
 To communicate the maximum amount of data that TLS will allow to be sent in
-CRYPTO_HS frames, TLS may use the `max_crypto_data` extension, defined as
+CRYPTO_HS frames, TLS MAY use the `max_crypto_data` extension, defined as
 follows:
 
 ~~~
@@ -1053,11 +1053,15 @@ max_crypto_data:
 The `extension_data` field of the extension contains the MaxCryptoData
 structure.
 
-Implementations SHOULD send this extension.  Receivers do not need to process
-this extension.  If the sender cannot fit the handshake data into this limit,
-the handshake will not be proceed.  The purpose of this extension is to provide
-a facility to debug issues during the handshake and also allow future
-extensibility of the protocol to larger message sizes.
+Implementations SHOULD send this extension.  Receivers do not need to
+process this extension.  If a receiver does process this extension and
+will not be able to fit its handshake into the limit, it SHOULD
+terminate the connection with a TODO error. If an implementation sends
+this extension and received more than max_crypto_data bytes from its
+peer, it SHOULD terminate the connection with a TODO error. The
+purpose of this extension is to provide a facility to debug issues
+during the handshake and also allow future extensibility of the
+protocol to larger message sizes.
 
 
 # Security Considerations
@@ -1188,7 +1192,8 @@ Issue and pull request numbers are listed with a leading octothorp.
 
 ## Since draft-ietf-quic-tls-11
 
-- Remove source address validation from TLS.
+- Big restructure to align with the "QUIC record layer for TLS" proposal.
+- Remove source address validation from TLS in favor of Retry.
 
 ## Since draft-ietf-quic-tls-10
 
