@@ -836,7 +836,7 @@ Similarly Handshake packets can only be sent and acked in Handshake packets.
 
 This enforces cryptographic separation between the data sent in the
 different packet sequence number spaces.  As a result, each packet number space
-starts at packet number 0.  Subsequent packet sent in the
+starts at packet number 0.  Subsequent packets sent in the
 same packet number space MUST increase the packet number by at least one.
 
 0-RTT and 1-RTT data exist in the same packet number space to make loss recovery
@@ -1517,7 +1517,7 @@ migration, see {{migrate-validate}}.
 QUIC uses token-based address validation.  Any time the server wishes
 to validate a client address, it provides the client with a token.  As
 long as the token's authenticity can be checked (see
-{{token-integrity}}) and if the client is able to return that token, it
+{{token-integrity}}) and the client is able to return that token, it
 proves to the server that it received the token.
 
 If QUIC decides to request address validation for the current
@@ -3116,7 +3116,7 @@ end, so CRYPTO_HS frames do not have a FIN bit.
 The EMPTY_ACK frame (type=0x19) is used to transmit loss recovery information
 during the cryptographic handshake before keys are established.  The EMPTY_ACK
 frame is used to assist loss recovery, see {{QUIC-RECOVERY}} by indicating that
-the receiver received a packet that it was not able to decrypt and hence cannot send
+the receiver received a packet it was not able to decrypt and hence cannot send
 a real ACK.
 
 An EMPTY_ACK frame has no content.  That is, an EMPTY_ACK frame consists of the
