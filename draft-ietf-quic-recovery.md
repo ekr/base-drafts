@@ -89,12 +89,16 @@ when, and only when, they appear in all capitals, as shown here.
 
 # Design of the QUIC Transmission Machinery
 
-All transmissions in QUIC are sent with a packet-level header, which includes a
-packet sequence number (referred to below as a packet number).  These packet
-numbers never repeat in the lifetime of a connection, and are monotonically
-increasing, which prevents ambiguity.  This fundamental design decision
-obviates the need for disambiguating between transmissions and
-retransmissions and eliminates significant complexity from QUIC's
+All transmissions in QUIC are sent with a packet-level header, which indicates
+an encryption level and includes a packet sequence number
+(referred to below as a packet number).  The encryption level indicates the
+packet number space, as described in {{QUIC-TRANSPORT}}.  Packet
+numbers never repeat within a packet number space for the lifetime of a
+connection.  Packet numbers monotonically increase within a space,
+preventing ambiguity.
+
+This design obviates the need for disambiguating between transmissions
+and retransmissions and eliminates significant complexity from QUIC's
 interpretation of TCP loss detection mechanisms.
 
 Every packet may contain several frames.  We outline the frames that are
@@ -107,7 +111,7 @@ important to the loss detection and congestion control machinery below.
 * Retransmittable packets are those that contain at least one
   retransmittable frame.
 
-* Crypto handshake data is sent on stream 0, and uses the reliability
+* Crypto handshake data is sent in CRYPTO_HS frames, and uses the reliability
   machinery of QUIC underneath.
 
 * ACK frames contain acknowledgment information.  ACK frames contain one or more
@@ -120,6 +124,17 @@ algorithms here that parallel well-known TCP ones. Protocol differences between
 QUIC and TCP however contribute to algorithmic differences. We briefly describe
 these protocol differences below.
 
+### Separate Packet Number Spaces
+
+QUIC uses separate packet number spaces for each encryption level, except that
+0-RTT and all generations of 1-RTT keys use the same packet number space.
+Separating the spaces allows the recovery mechanisms to work without special
+cases to avoid spuriously retransmitting un-processable packets.
+Separate packet number spaces do not imply separate paths. Consequently,
+a sender need not split congestion control actions across packet number spaces.
+The optimizations described in {{optimizations}} help a sender optimize
+loss detection across packet number spaces.
+
 ### Monotonically Increasing Packet Numbers
 
 TCP conflates transmission sequence number at the sender with delivery sequence
@@ -130,15 +145,17 @@ number for transmissions, and any data that is to be delivered to the receiving
 application(s) is sent in one or more streams, with delivery order determined
 by stream offsets encoded within STREAM frames.
 
-QUIC's packet number is strictly increasing, and directly encodes transmission
-order.  A higher QUIC packet number signifies that the packet was sent later,
-and a lower QUIC packet number signifies that the packet was sent earlier.  When
-a packet containing frames is deemed lost, QUIC rebundles necessary frames in a
-new packet with a new packet number, removing ambiguity about which packet is
-acknowledged when an ACK is received.  Consequently, more accurate RTT
-measurements can be made, spurious retransmissions are trivially detected, and
-mechanisms such as Fast Retransmit can be applied universally, based only on
-packet number.
+QUIC's packet number is strictly increasing within a packet number
+space, and directly encodes transmission order.  A higher QUIC packet
+number signifies that the packet was sent later, and a lower QUIC
+packet number signifies that the packet was sent earlier.  When a
+packet containing frames is deemed lost, QUIC rebundles the
+retransmittable data in a new packet with a new packet number,
+removing ambiguity about which packet is acknowledged when an ACK is
+received.  Consequently, more accurate RTT measurements can be made,
+spurious retransmissions are trivially detected, and mechanisms such
+as Fast Retransmit can be applied universally, based only on packet
+number.
 
 This design point significantly simplifies loss detection mechanisms for QUIC.
 Most TCP mechanisms implicitly attempt to infer transmission ordering based on
@@ -259,17 +276,18 @@ prone to spurious retransmissions due to its reduced reordering resilence
 without the alarm. This observation led Linux TCP implementers to implement an
 alarm for TCP as well, and this document incorporates this advancement.
 
-
 ## Timer-based Detection
 
 Timer-based loss detection implements a handshake retransmission timer that
 is optimized for QUIC as well as the spirit of TCP's Tail Loss Probe
 and Retransmission Timeout mechanisms.
 
-### Handshake Timeout
+### Crypto Handshake Timeout
 
-Handshake packets, which contain STREAM frames for stream 0, are critical to
-QUIC transport and crypto negotiation, so a separate alarm is used for them.
+Data in CRYPTO_HS frames is critical to QUIC transport and crypto negotiation,
+so a more aggressive timeout is used to retransmit it.  Below, the word
+handshake packet is used to refer to packets containing CRYPTO_HS frames,
+not packets with the specific long header packet type Handshake.
 
 The initial handshake timeout SHOULD be set to twice the initial RTT.
 
@@ -280,23 +298,26 @@ connection's final smoothed RTT value as the resumed connection's initial RTT.
 If no previous RTT is available, or if the network changes, the initial RTT
 SHOULD be set to 100ms.
 
-When a handshake packet is sent, the sender SHOULD set an alarm for the
-handshake timeout period.
+When CRYPTO_HS frames are sent, the sender SHOULD set an alarm for the handshake
+timeout period.
 
-When the alarm fires, the sender MUST retransmit all unacknowledged handshake
-data, by calling RetransmitAllUnackedHandshakeData(). On each consecutive
-firing of the handshake alarm, the sender SHOULD double the handshake timeout
-and set an alarm for this period.
+When the alarm fires, the sender MUST retransmit all unacknowledged CRYPTO_HS
+data by calling RetransmitAllUnackedHandshakeData(). On each
+consecutive firing of the handshake alarm without receiving an
+acknowledgement for a new packet, the sender SHOULD double the handshake
+timeout and set an alarm for this period.
 
 When an acknowledgement is received for a handshake packet, the new RTT is
 computed and the alarm SHOULD be set for twice the newly computed smoothed RTT.
 
-Handshake data may be cancelled by handshake state transitions. In particular,
-all non-protected data SHOULD no longer be transmitted once packet protection
-is available.
+#### Retry
 
-(TODO: Work this section some more. Add text on client vs. server, and on
-stateless retry.)
+A RETRY packet causes the content of the client's Initial packet to be
+immediately retransmitted along with the token present in the RETRY.
+
+The RETRY indicates that the Initial was received but not processed.
+It MUST NOT be treated as an acknowledgment for the Initial,
+but it MAY be used for an RTT measurement.
 
 ### Tail Loss Probe {#tlp}
 
@@ -398,7 +419,43 @@ A packet sent on an RTO alarm MUST NOT be blocked by the sender's congestion
 controller. A sender MUST however count these bytes as additional bytes in
 flight, since this packet adds network load without establishing packet loss.
 
+## Multiple Packet Number Space Optimizations {#optimizations}
+
+There are cases where one may be able to gain recovery information from
+acknowledgements of packets in another packet number space, but they rely
+on complex assumptions about the peer’s processing and acknowledgement
+algorithms.  Even those are unable to quickly recover from cases such as
+losing the client's Initial, but receiving the 0-RTT packets.  Below is
+an optimization using coalesced packets and implicit acknowledgements.
+
+### Coalesced Packets
+
+Despite loss recovery being separate for different packet number spaces,
+the ability to send a coalesced packet enables faster recovery with small,
+and sometimes no overhead.  The acknowledgement of a coalesced packet
+allows QUIC recovery to use early retransmit to determine if any prior
+packets in that space were lost without waiting for timeouts.
+
+This optimization is particularly useful when:
+
+ * Sending the client’s Initial, which must be padded to a full
+   sized packet, so the datagram typically has extra space to retransmit
+   some outstanding 0-RTT data.
+ * The clients sends 1-RTT data soon after the final TLS flight
+   (containing the client Finished) and can proactively retransmit the
+   final client flight with one or more 1-RTT packets.
+
+### Implicit Acknowledgements of Initial
+
+Initial data may be cancelled when packets at the Handshake level
+are received and processed, because that indicates all packets at
+Initial encryption have been received and processed by the peer.
+
 ## Generating Acknowledgements
+
+An ACK frame acknowledges packets from only one packet number space.
+Received packets from each packet number space should be stored
+separately while multiple spaces have outstanding data.
 
 QUIC SHOULD delay sending acknowledgements in response to packets,
 but MUST NOT excessively delay acknowledgements of packets containing
@@ -421,6 +478,14 @@ As an optimization, a receiver MAY process multiple packets before
 sending any ACK frames in response.  In this case they can determine
 whether an immediate or delayed acknowledgement should be generated
 after processing incoming packets.
+
+### Crypto Handshake Data
+
+In order to quickly complete the handshake and avoid spurious
+retransmissions due to handshake alarm timeouts, acknowledging packets
+containing CRYPTO_HS frames should use a very short ack delay, such as 1ms.
+ACK frames may be sent immediately when the crypto stack indicates all
+data for that encryption level has been received.
 
 ### ACK Ranges
 
@@ -514,7 +579,7 @@ time_of_last_sent_retransmittable_packet:
 : The time the most recent retransmittable packet was sent.
 
 time_of_last_sent_handshake_packet:
-: The time the most recent packet containing handshake data was sent.
+: The time the most recent packet containing a CRYPTO_HS frame was sent.
 
 largest_sent_packet:
 : The packet number of the most recently sent packet.
@@ -559,6 +624,8 @@ sent_packets:
   was sent, a boolean indicating whether the packet is ack only, and a bytes
   field indicating the packet's size.  sent_packets is ordered by packet
   number, and packets remain in sent_packets until acknowledged or lost.
+  A sent_packets data structure is maintained per packet number space, and ack
+  processing only applies to a single space.
 
 ### Initialization
 
@@ -711,7 +778,7 @@ closed once a reject is sent, so no timer is set to retransmit the reject.
 
 Version negotiation packets are always stateless, and MUST be sent once per
 handshake packet that uses an unsupported QUIC version, and MAY be sent in
-response to 0RTT packets.
+response to 0-RTT packets.
 
 #### Tail Loss Probe and Retransmission Alarm
 
@@ -807,18 +874,11 @@ Pseudocode for OnLossDetectionAlarm follows:
 
 ### Detecting Lost Packets
 
-Packets in QUIC are only considered lost once a larger packet number is
-acknowledged.  DetectLostPackets is called every time an ack is received.
-If the loss detection alarm fires and the loss_time is set, the previous
-largest acked packet is supplied.
-
-#### Handshake Packets
-
-The receiver MUST close the connection with an error of type OPTIMISTIC_ACK
-when receiving an unprotected packet that acks protected packets.
-The receiver MUST trust protected acks for unprotected packets, however.  Aside
-from this, loss detection for handshake packets when an ack is processed is
-identical to other packets.
+Packets in QUIC are only considered lost once a larger packet number in
+the same packet number space is acknowledged.  DetectLostPackets is called
+every time an ack is received and operates on the sent_packets for that
+packet number space.  If the loss detection alarm fires and the loss_time
+is set, the previous largest acked packet is supplied.
 
 #### Pseudocode
 
@@ -1079,13 +1139,18 @@ This document has no IANA actions.  Yet.
 
 --- back
 
-# Acknowledgments
-
-
 # Change Log
 
 > **RFC Editor's Note:**  Please remove this section prior to
 > publication of a final version of this document.
+
+## Since draft-ietf-quic-recovery-12
+
+- Updated to match the design team proposal.
+
+## Since draft-ietf-quic-recovery-11
+
+- Text on multiple packet number spaces and relevant optimizations.
 
 ## Since draft-ietf-quic-recovery-10
 
@@ -1154,3 +1219,7 @@ No significant changes.
 - Adopted as base for draft-ietf-quic-recovery
 - Updated authors/editors list
 - Added table of contents
+
+
+# Acknowledgments
+{:numbered="false"}

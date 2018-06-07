@@ -317,10 +317,11 @@ response may contain zero or more header blocks containing the message headers
 of informational (1xx) HTTP responses (see {{!RFC7230}}, Section 3.2 and
 {{!RFC7231}}, Section 6.2).
 
-PUSH_PROMISE frames MAY be interleaved with the frames of a response message
-indicating a pushed resource related to the response. These PUSH_PROMISE frames
-are not part of the response, but carry the headers of a separate HTTP request
-message.  See {{server-push}} for more details.
+PUSH_PROMISE frames (see {{frame-push-promise}}) MAY be interleaved with the
+frames of a response message indicating a pushed resource related to the
+response. These PUSH_PROMISE frames are not part of the response, but carry the
+headers of a separate HTTP request message.  See {{server-push}} for more
+details.
 
 The "chunked" transfer encoding defined in Section 4.1 of {{!RFC7230}} MUST NOT
 be used.
@@ -603,9 +604,9 @@ The flags defined are:
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                 Prioritized Request ID (i)                    |
+|                 Prioritized Request ID (i)                  ...
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                  Stream Dependency ID (i)                     |
+|                  Stream Dependency ID (i)                   ...
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |   Weight (8)  |
 +-+-+-+-+-+-+-+-+
@@ -777,18 +778,13 @@ Settings which are integers use the QUIC variable-length integer encoding.
 
 #### Defined SETTINGS Parameters {#settings-parameters}
 
-The following settings are defined in HTTP/QUIC:
-
-  SETTINGS_HEADER_TABLE_SIZE (0x1):
-  : An integer with a maximum value of 2^30 - 1.  The default value is 4,096
-    bytes.
+The following setting is defined in HTTP/QUIC:
 
   SETTINGS_MAX_HEADER_LIST_SIZE (0x6):
   : An integer with a maximum value of 2^30 - 1.  The default value is
     unlimited.
 
-  SETTINGS_QPACK_BLOCKED_STREAMS (0x7):
-  : An integer with a maximum value of 2^16 - 1.  The default value is 100.
+Additional settings MAY be defined by extensions to HTTP/QUIC.
 
 #### Initial SETTINGS Values
 
@@ -1068,13 +1064,17 @@ HTTP_VERSION_FALLBACK (0x09):
   retry over HTTP/2.
 
 HTTP_WRONG_STREAM (0x0A):
-: A frame was received on stream where it is not permitted.
+: A frame was received on a stream where it is not permitted.
 
 HTTP_PUSH_LIMIT_EXCEEDED (0x0B):
 : A Push ID greater than the current maximum Push ID was referenced.
 
 HTTP_DUPLICATE_PUSH (0x0C):
 : A Push ID was referenced in two different stream headers.
+
+HTTP_GENERAL_PROTOCOL_ERROR (0x00FF):
+: Peer violated protocol requirements in a way which doesn't match a more
+  specific error code, or endpoint declines to use the more specific error code.
 
 HTTP_MALFORMED_FRAME (0x01XX):
 : An error in a specific frame type.  The frame type is included as the last
@@ -1418,13 +1418,11 @@ The entries in the following table are registered by this document.
 |----------------------------|------|-------------------------|
 | Setting Name               | Code | Specification           |
 |----------------------------|:----:|-------------------------|
-| HEADER_TABLE_SIZE          | 0x1  | {{settings-parameters}} |
 | Reserved                   | 0x2  | N/A                     |
 | Reserved                   | 0x3  | N/A                     |
 | Reserved                   | 0x4  | N/A                     |
 | Reserved                   | 0x5  | N/A                     |
 | MAX_HEADER_LIST_SIZE       | 0x6  | {{settings-parameters}} |
-| QPACK_BLOCKED_STREAMS      | 0x7  | {{settings-parameters}} |
 |----------------------------|------|-------------------------|
 
 ## Error Codes {#iana-error-codes}
@@ -1477,13 +1475,6 @@ The entries in the following table are registered by this document.
 
 
 --- back
-
-# Contributors
-
-The original authors of this specification were Robbie Shade and Mike Warres.
-
-A substantial portion of Mike's contribution was supported by Microsoft during
-his employment there.
 
 # Change Log
 
@@ -1578,3 +1569,12 @@ None.
 
 - Adopted as base for draft-ietf-quic-http
 - Updated authors/editors list
+
+# Acknowledgements
+{:numbered="false"}
+
+The original authors of this specification were Robbie Shade and Mike Warres.
+
+A substantial portion of Mike's contribution was supported by Microsoft during
+his employment there.
+
