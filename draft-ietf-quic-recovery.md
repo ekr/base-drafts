@@ -1108,11 +1108,12 @@ This document has no IANA actions.  Yet.
 
 ## Since draft-ietf-quic-recovery-12
 
-- Updated to match the design team proposal.
+- Updated to match the Stream0 design team proposal.
+- Text on multiple packet number spaces.
 
 ## Since draft-ietf-quic-recovery-11
 
-- Text on multiple packet number spaces and relevant optimizations.
+No significant changes.
 
 ## Since draft-ietf-quic-recovery-10
 
