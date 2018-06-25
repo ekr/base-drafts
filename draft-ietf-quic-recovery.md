@@ -294,16 +294,16 @@ connection's final smoothed RTT value as the resumed connection's initial RTT.
 If no previous RTT is available, or if the network changes, the initial RTT
 SHOULD be set to 100ms.
 
-When CRYPTO_HS frames are sent, the sender SHOULD set an alarm for the
-handshake timeout period.  When the alarm fires, the sender MUST retransmit
-all unacknowledged CRYPTO_HS data by calling
-RetransmitAllUnackedHandshakeData(). On each consecutive firing of the
-handshake alarm without receiving an acknowledgement for a new packet,
-the sender SHOULD double the handshake timeout and set an alarm for this
-period.
+When CRYPTO_HS frames are sent at any encryption level besides 1-RTT, the
+sender SHOULD set an alarm for the handshake timeout period.  When the
+alarm fires, the sender MUST retransmit all unacknowledged CRYPTO_HS data
+by calling RetransmitAllUnackedHandshakeData(). On each consecutive firing
+of the handshake alarm without receiving an acknowledgement for a new
+packet, the sender SHOULD double the handshake timeout and set an alarm for
+this period.
 
 When CRYPTO_HS frames are outstanding, the TLP and RTO timers are not active
-unless the CRYPTO_HS frames were sent at 1RTT encryption.
+unless the CRYPTO_HS frames were sent at 1-RTT encryption.
 
 When an acknowledgement is received for a handshake packet, the new RTT is
 computed and the alarm SHOULD be set for twice the newly computed smoothed RTT.
@@ -445,7 +445,7 @@ after processing incoming packets.
 
 In order to quickly complete the handshake and avoid spurious
 retransmissions due to handshake alarm timeouts, handshake packets
-SHOULD use a very short ack delay, such as 1ms.  ACK frames MAY be
+SHOULD use a very short ack delay, such as 1ms.  ACK frames SHOULD be
 sent immediately when the crypto stack indicates all data for that
 encryption level has been received.
 
