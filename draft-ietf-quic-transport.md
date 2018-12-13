@@ -141,7 +141,7 @@ This document describes the core QUIC protocol and is structured as follows.
 
 * Connections are the context in which QUIC endpoints communicate.
   - {{connections}} describes core concepts related to connections,
-  - {{version-negotiation}} describes version negotiation,
+  - {{negotiating-versions}} describes version negotiation,
   - {{handshake}} details the process for establishing connections,
   - {{address-validation}} specifies critical denial of service mitigation
     mechanisms,
@@ -192,13 +192,9 @@ QUIC packet:
 
 Endpoint:
 
-: An entity that can participate in a QUIC conversation by generating,
+: An entity that can participate in a QUIC connection by generating,
   receiving, and processing QUIC packets. There are only two types of endpoint
   in QUIC: client and server.
-
-Connection:
-
-: A conversation between two QUIC endpoints with a single encryption context.
 
 Client:
 
@@ -865,11 +861,10 @@ longer if the peer chooses to not send STREAMS_BLOCKED frames.
 
 # Connections {#connections}
 
-A QUIC connection is a single conversation between two QUIC endpoints.  QUIC's
-connection establishment combines version negotiation with the cryptographic
-and transport handshakes to reduce connection establishment latency, as
-described in {{handshake}}.  Once established, a connection may migrate to a
-different IP or port at either endpoint as
+QUIC's connection establishment combines version negotiation with the
+cryptographic and transport handshakes to reduce connection establishment
+latency, as described in {{handshake}}.  Once established, a connection
+may migrate to a different IP or port at either endpoint as
 described in {{migration}}.  Finally, a connection may be terminated by either
 endpoint, as described in {{termination}}.
 
@@ -904,11 +899,6 @@ load balancer that routes based on connection ID could agree with the load
 balancer on a fixed length for connection IDs, or agree on an encoding scheme.
 A fixed portion could encode an explicit length, which allows the entire
 connection ID to vary in length and still be used by the load balancer.
-
-A Version Negotiation ({{packet-version}}) packet echoes the connection IDs
-selected by the client, both to ensure correct routing toward the client and to
-allow the client to validate that the packet is in response to an Initial
-packet.
 
 A zero-length connection ID MAY be used when the connection ID is not needed for
 routing and the address/port tuple of packets is sufficient to identify a
@@ -951,12 +941,12 @@ cannot expect its peer to store and use all issued connection IDs.
 An endpoint SHOULD ensure that its peer has a sufficient number of available and
 unused connection IDs.  While each endpoint independently chooses how many
 connection IDs to issue, endpoints SHOULD provide and maintain at least eight
-connection IDs.  The endpoint can do this by always supplying a new connection
-ID when a connection ID is retired by its peer or when the endpoint receives a
-packet with a previously unused connection ID.  Endpoints that initiate
-migration and require non-zero-length connection IDs SHOULD provide their peers
-with new connection IDs before migration, or risk the peer closing the
-connection.
+connection IDs.  The endpoint SHOULD do this by always supplying a new
+connection ID when a connection ID is retired by its peer or when the endpoint
+receives a packet with a previously unused connection ID.  Endpoints that
+initiate migration and require non-zero-length connection IDs SHOULD provide
+their peers with new connection IDs before migration, or risk the peer closing
+the connection.
 
 
 ### Consuming and Retiring Connection IDs {#retiring-cids}
@@ -967,13 +957,10 @@ response to a migrating peer, see {{migration-linkability}} for more.
 
 An endpoint maintains a set of connection IDs received from its peer, any of
 which it can use when sending packets.  When the endpoint wishes to remove a
-connection ID from use, it sends a RETIRE_CONNECTION_ID frame to its peer,
-indicating that the peer might bring a new connection ID into circulation using
-the NEW_CONNECTION_ID frame.
-
-An endpoint that retires a connection ID can retain knowledge of that connection
-ID for a period of time after sending the RETIRE_CONNECTION_ID frame, or until
-that frame is acknowledged.
+connection ID from use, it sends a RETIRE_CONNECTION_ID frame to its peer.
+Sending a RETIRE_CONNECTION_ID frame indicates that the connection ID won't be
+used again and requests that the peer replace it with a new connection ID using
+a NEW_CONNECTION_ID frame.
 
 As discussed in {{migration-linkability}}, each connection ID MUST be used on
 packets sent from only one local address.  An endpoint that migrates away from a
@@ -1025,16 +1012,16 @@ that packet.
 
 If a server receives a packet that has an unsupported version, but the packet is
 sufficiently large to initiate a new connection for any version supported by the
-server, it SHOULD send a Version Negotiation packet as described in
-{{send-vn}}. Servers MAY rate control these packets to avoid storms of Version
-Negotiation packets.
+server, it SHOULD send a Version Error packet as described in
+{{packet-version}}. Servers MAY rate control these packets to avoid
+storms of Version Error Packets.
 
 The first packet for an unsupported version can use different semantics and
 encodings for any version-specific field.  In particular, different packet
 protection keys might be used for different versions.  Servers that do not
 support a particular version are unlikely to be able to decrypt the payload of
 the packet.  Servers SHOULD NOT attempt to decode or decrypt a packet from an
-unknown version, but instead send a Version Negotiation packet, provided that
+unknown version, but instead send a Version Error packet, provided that
 the packet is sufficiently long.
 
 Servers MUST drop other packets that contain unsupported versions.
@@ -1080,111 +1067,6 @@ suggested structure:
 
 -->
 
-
-# Version Negotiation {#version-negotiation}
-
-Version negotiation ensures that client and server agree to a QUIC version
-that is mutually supported. A server sends a Version Negotiation packet in
-response to each packet that might initiate a new connection, see
-{{packet-handling}} for details.
-
-The first few messages of an exchange between a client attempting to create a
-new connection with server is shown in {{fig-vn}}.  After version negotiation
-completes, connection establishment can proceed, for example as shown in
-{{example-handshake-flows}}.
-
-~~~~
-Client                                                  Server
-
-Packet (v=X) ->
-
-                        <- Version Negotiation (supported=Y,Z)
-
-Packet (v=Y) ->
-
-                                            <- Packet(s) (v=Y)
-~~~~
-{: #fig-vn title="Example Version Negotiation Exchange"}
-
-The size of the first packet sent by a client will determine whether a server
-sends a Version Negotiation packet. Clients that support multiple QUIC versions
-SHOULD pad the first packet they send to the largest of the minimum packet sizes
-across all versions they support. This ensures that the server responds if there
-is a mutually supported version.
-
-
-## Sending Version Negotiation Packets {#send-vn}
-
-If the version selected by the client is not acceptable to the server, the
-server responds with a Version Negotiation packet (see {{packet-version}}).
-This includes a list of versions that the server will accept.
-
-This system allows a server to process packets with unsupported versions without
-retaining state.  Though either the Initial packet or the Version Negotiation
-packet that is sent in response could be lost, the client will send new packets
-until it successfully receives a response or it abandons the connection attempt.
-
-A server MAY limit the number of Version Negotiation packets it sends.  For
-instance, a server that is able to recognize packets as 0-RTT might choose not
-to send Version Negotiation packets in response to 0-RTT packets with the
-expectation that it will eventually receive an Initial packet.
-
-
-## Handling Version Negotiation Packets {#handle-vn}
-
-When the client receives a Version Negotiation packet, it first checks that the
-Destination and Source Connection ID fields match the Source and Destination
-Connection ID fields in a packet that the client sent.  If this check fails, the
-packet MUST be discarded.
-
-Once the Version Negotiation packet is determined to be valid, the client then
-selects an acceptable protocol version from the list provided by the server.
-The client then attempts to create a connection using that version.  Though the
-content of the Initial packet the client sends might not change in response to
-version negotiation, a client MUST increase the packet number it uses on every
-packet it sends.  Packets MUST continue to use long headers ({{long-header}})
-and MUST include the new negotiated protocol version.
-
-The client MUST use the long header format and include its selected version on
-all packets until it has 1-RTT keys and it has received a packet from the server
-which is not a Version Negotiation packet.
-
-A client MUST NOT change the version it uses unless it is in response to a
-Version Negotiation packet from the server.  Once a client receives a packet
-from the server which is not a Version Negotiation packet, it MUST discard other
-Version Negotiation packets on the same connection.  Similarly, a client MUST
-ignore a Version Negotiation packet if it has already received and acted on a
-Version Negotiation packet.
-
-A client MUST ignore a Version Negotiation packet that lists the client's chosen
-version.
-
-A client MAY attempt 0-RTT after receiving a Version Negotiation packet.  A
-client that sends additional 0-RTT packets MUST NOT reset the packet number to 0
-as a result, see {{retry-0rtt-pn}}.
-
-Version negotiation packets have no cryptographic protection. The result of the
-negotiation MUST be revalidated as part of the cryptographic handshake (see
-{{version-validation}}).
-
-
-## Using Reserved Versions
-
-For a server to use a new version in the future, clients must correctly handle
-unsupported versions. To help ensure this, a server SHOULD include a reserved
-version (see {{versions}}) while generating a Version Negotiation packet.
-
-The design of version negotiation permits a server to avoid maintaining state
-for packets that it rejects in this fashion. The validation of version
-negotiation (see {{version-validation}}) only validates the result of version
-negotiation, which is the same no matter which reserved version was sent.
-A server MAY therefore send different reserved version numbers in the Version
-Negotiation Packet and in its transport parameters.
-
-A client MAY send a packet using a reserved version number.  This can be used to
-solicit a list of supported versions from a server.
-
-
 # Cryptographic and Transport Handshake {#handshake}
 
 QUIC relies on a combined cryptographic and transport handshake to minimize
@@ -1213,7 +1095,7 @@ that meets the requirements of the cryptographic handshake protocol:
 * authenticated values for the transport parameters of the peer (see
   {{transport-parameters}})
 
-* authenticated confirmation of version negotiation (see {{version-validation}})
+* authenticated version negotiation
 
 * authenticated negotiation of an application protocol (TLS uses ALPN
   {{?RFC7301}} for this purpose)
@@ -1301,6 +1183,47 @@ Handshake[0]: CRYPTO[FIN], ACK[0]
 ~~~~
 {: #tls-0rtt-handshake title="Example 0-RTT Handshake"}
 
+## Negotiating Versions {#negotiating-versions}
+
+Version negotiation in QUIC is straightforward: the client supports a
+set of ordered versions V_0 ... V_N. Its Initial packet is sent using
+the oldest version that the client supports (V_0) and then lists all
+of the versions that the client supports in the supported_versions
+field of its transport parameters
+{{transport-parameter-encoding}}. The server then selects its
+preferred version and responds with that version in all of its future
+packets (except for Retry, as below). It also inserts the selected
+version in the version field of its transport parameters.
+
+The server MUST NOT select a version not offered by the client.  The
+client MUST validate that the version in the server's packets is one
+of the versions that it offered and that it matches the value in the
+server's transport parameters.
+
+If the server sends a Retry, it MUST use the same version that
+the client provided in its Initial. Version negotiation takes
+place after the retry cycle is over.
+
+In order for negotiation to complete successfully, the client's
+Initial packet (and initial CRYPTO frames) MUST be interpretable
+by the server. This has several implications:
+
+- Servers MUST retain the ability to process the Initial packet
+  from older versions as long as they are reasonably popular.
+  This is not generally an issue in practice as long as the
+  the overall structure of the protocol remains similar.
+
+- It is not possible for a client which supports two totally
+  incompatible versions of QUIC to reliably interoperate with
+  servers which might only support one of those versions.
+  This seems unlikely to happen in practice, however, as each
+  application binding is likely to stick with a particular
+  set of compatible versions.
+
+If the server receives an Initial packet with a version it does
+not understand this will cause a connection failure and the
+server SHOULD send a Version Error packet {{packet-version}}.
+
 
 ## Negotiating Connection IDs {#negotiating-connection-ids}
 
@@ -1370,9 +1293,7 @@ The encoding of the transport parameters is detailed in
 
 QUIC includes the encoded transport parameters in the cryptographic handshake.
 Once the handshake completes, the transport parameters declared by the peer are
-available.  Each endpoint validates the value provided by its peer.  In
-particular, version negotiation MUST be validated (see {{version-validation}})
-before the connection establishment is considered properly complete.
+available.  Each endpoint validates the value provided by its peer.
 
 Definitions for each of the defined transport parameters are included in
 {{transport-parameter-definitions}}.  Any given parameter MUST appear at most
@@ -1434,76 +1355,6 @@ New transport parameters can be registered according to the rules in
 {{iana-transport-parameters}}.
 
 
-### Version Negotiation Validation {#version-validation}
-
-Though the cryptographic handshake has integrity protection, two forms of QUIC
-version downgrade are possible.  In the first, an attacker replaces the QUIC
-version in the Initial packet.  In the second, a fake Version Negotiation packet
-is sent by an attacker.  To protect against these attacks, the transport
-parameters include three fields that encode version information.  These
-parameters are used to retroactively authenticate the choice of version (see
-{{version-negotiation}}).
-
-The cryptographic handshake provides integrity protection for the negotiated
-version as part of the transport parameters (see
-{{transport-parameter-definitions}}).  As a result, attacks on version
-negotiation by an attacker can be detected.
-
-The client includes the initial_version field in its transport parameters.  The
-initial_version is the version that the client initially attempted to use.  If
-the server did not send a Version Negotiation packet {{packet-version}}, this
-will be identical to the negotiated_version field in the server transport
-parameters.
-
-A server that processes all packets in a stateful fashion can remember how
-version negotiation was performed and validate the initial_version value.
-
-A server that does not maintain state for every packet it receives (i.e., a
-stateless server) uses a different process. If the initial_version matches the
-version of QUIC that is in use, a stateless server can accept the value.
-
-If the initial_version is different from the version of QUIC that is in use, a
-stateless server MUST check that it would have sent a Version Negotiation packet
-if it had received a packet with the indicated initial_version.  If a server
-would have accepted the version included in the initial_version and the value
-differs from the QUIC version that is in use, the server MUST terminate the
-connection with a VERSION_NEGOTIATION_ERROR error.
-
-The server includes both the version of QUIC that is in use and a list of the
-QUIC versions that the server supports (see
-{{transport-parameter-definitions}}).
-
-The negotiated_version field is the version that is in use.  This MUST be set by
-the server to the value that is on the Initial packet that it accepts (not an
-Initial packet that triggers a Retry or Version Negotiation packet).  A client
-that receives a negotiated_version that does not match the version of QUIC that
-is in use MUST terminate the connection with a VERSION_NEGOTIATION_ERROR error
-code.
-
-The server includes a list of versions that it would send in any version
-negotiation packet ({{packet-version}}) in the supported_versions field.  The
-server populates this field even if it did not send a version negotiation
-packet.
-
-The client validates that the negotiated_version is included in the
-supported_versions list and - if version negotiation was performed - that it
-would have selected the negotiated version.  A client MUST terminate the
-connection with a VERSION_NEGOTIATION_ERROR error code if the current QUIC
-version is not listed in the supported_versions list.  A client MUST terminate
-with a VERSION_NEGOTIATION_ERROR error code if version negotiation occurred but
-it would have selected a different version based on the value of the
-supported_versions list.
-
-When an endpoint accepts multiple QUIC versions, it can potentially interpret
-transport parameters as they are defined by any of the QUIC versions it
-supports.  The version field in the QUIC packet header is authenticated using
-transport parameters.  The position and the format of the version fields in
-transport parameters MUST either be identical across different QUIC versions, or
-be unambiguously different to ensure no confusion about their interpretation.
-One way that a new format could be introduced is to define a TLS extension with
-a different codepoint.
-
-
 # Address Validation
 
 Address validation is used by QUIC to avoid being used for a traffic
@@ -1547,25 +1398,23 @@ Handshake keys, it SHOULD send an Initial packet in a UDP datagram of at least
 packet.
 
 A server might wish to validate the client address before starting the
-cryptographic handshake.  Client addresses can be verified using an address
-validation token.  This token is delivered during connection establishment with
-a Retry packet (see {{validate-retry}}) or in a previous connection using the
-NEW_TOKEN frame (see {{validate-future}}).
-
+cryptographic handshake. QUIC uses a token in the Initial packet to provide
+address validation prior to completing the handshake. This token is delivered
+to the client during connection establishment with a Retry packet
+(see {{validate-retry}}) or in a previous connection using the NEW_TOKEN
+frame (see {{validate-future}}).
 
 ### Address Validation using Retry Packets {#validate-retry}
 
-QUIC uses token-based address validation during connection establishment.  Any
-time the server wishes to validate a client address, it provides the client with
-a token.  As long as it is not possible for an attacker to generate a valid
-token for its own address (see {{token-integrity}}) and the client is able to
-return that token, it proves to the server that it received the token.
-
 Upon receiving the client's Initial packet, the server can request address
 validation by sending a Retry packet ({{packet-retry}}) containing a token. This
-token is repeated by the client in an Initial packet after it receives the Retry
-packet.  In response to receiving a token in an Initial packet, a server can
-either abort the connection or permit it to proceed.
+token MUST be repeated by the client in all Initial packets it sends after it
+receives the Retry packet.  In response to processing an Initial containing a
+token, a server can either abort the connection or permit it to proceed.
+
+As long as it is not possible for an attacker to generate a valid token for
+its own address (see {{token-integrity}}) and the client is able to return
+that token, it proves to the server that it received the token.
 
 A server can also use a Retry packet to defer the state and processing costs
 of connection establishment.  By giving the client a different connection ID to
@@ -1599,9 +1448,12 @@ amount of data to a client in response to 0-RTT data.
 
 The server uses the NEW_TOKEN frame {{frame-new-token}} to provide the client
 with an address validation token that can be used to validate future
-connections.  The client may then use this token to validate future connections
-by including it in the Initial packet's header.  The client MUST NOT use the
-token provided in a Retry for future connections.
+connections.  The client includes this token in Initial packets to provide
+address validation in a future connection.  The client MUST include the
+token in all Initial packets it sends, unless a Retry replaces the token
+with a newer token. The client MUST NOT use the token provided in a Retry
+for future connections. Servers MAY discard any Initial packet that does not
+carry the expected token.
 
 Unlike the token that is created for a Retry packet, there might be some time
 between when the token is created and when the token is subsequently used.
@@ -1623,17 +1475,19 @@ token was issued and any connection where it is used.  Clients that want to
 break continuity of identity with a server MAY discard tokens provided using the
 NEW_TOKEN frame.  Tokens obtained in Retry packets MUST NOT be discarded.
 
-A client SHOULD NOT reuse a token.  Reusing a token allows connections to be
-linked by entities on the network path (see {{migration-linkability}}).  A
-client MUST NOT reuse a token if it believes that its point of network
-attachment has changed since the token was last used; that is, if there is a
-change in its local IP address or network interface.  A client needs to start
-the connection process over if it migrates prior to completing the handshake.
+A client SHOULD NOT reuse a token in different connections. Reusing a token
+allows connections to be linked by entities on the network path
+(see {{migration-linkability}}).  A client MUST NOT reuse a token if it
+believes that its point of network attachment has changed since the token was
+last used; that is, if there is a change in its local IP address or network
+interface.  A client needs to start the connection process over if it migrates
+prior to completing the handshake.
 
 When a server receives an Initial packet with an address validation token, it
-SHOULD attempt to validate it.  If the token is invalid then the server SHOULD
-proceed as if the client did not have a validated address, including potentially
-sending a Retry. If the validation succeeds, the server SHOULD then allow the
+SHOULD attempt to validate it, unless it has already completed address
+validation.  If the token is invalid then the server SHOULD proceed as if
+the client did not have a validated address, including potentially sending
+a Retry. If the validation succeeds, the server SHOULD then allow the
 handshake to proceed.
 
 Note:
@@ -1752,12 +1606,15 @@ the one to which the PATH_CHALLENGE was sent, path validation is considered to
 have failed, even if the data matches that sent in the PATH_CHALLENGE.
 
 Additionally, the PATH_RESPONSE frame MUST be received on the same local address
-from which the corresponding PATH_CHALLENGE was sent.  If a PATH_RESPONSE frame
-is received on a different local address than the one from which the
-PATH_CHALLENGE was sent, path validation is considered to have failed, even if
-the data matches that sent in the PATH_CHALLENGE.  Thus, the endpoint considers
-the path to be valid when a PATH_RESPONSE frame is received on the same path
-with the same payload as the PATH_CHALLENGE frame.
+from which the corresponding PATH_CHALLENGE was sent.  An endpoint considers the
+path to be valid when a PATH_RESPONSE frame is received on the same path with
+the same payload as the PATH_CHALLENGE frame.
+
+If a PATH_RESPONSE frame is received on a different local address than the one
+from which the PATH_CHALLENGE was sent, path validation is not considered to be
+successful, even if the data matches the PATH_CHALLENGE.  This doesn't result in
+path validation failure, as it might be a result of a forwarded packet (see
+{{off-path-forward}}) or misrouting.
 
 
 ## Failed Path Validation
@@ -1767,7 +1624,8 @@ abandons its attempt to validate the path.
 
 Endpoints SHOULD abandon path validation based on a timer. When setting this
 timer, implementations are cautioned that the new path could have a longer
-round-trip time than the original.
+round-trip time than the original.  A value of three times the current
+Retransmittion Timeout (RTO) as defined in {{QUIC-RECOVERY}} is RECOMMENDED.
 
 Note that the endpoint might receive packets containing other frames on the new
 path, but a PATH_RESPONSE frame with appropriate data is required for path
@@ -1892,7 +1750,7 @@ After verifying a new client address, the server SHOULD send new address
 validation tokens ({{address-validation}}) to the client.
 
 
-### Handling Address Spoofing by a Peer {#address-spoofing}
+### Peer Address Spoofing {#address-spoofing}
 
 It is possible that a peer is spoofing its source address to cause an endpoint
 to send excessive amounts of data to an unwilling host.  If the endpoint sends
@@ -1915,7 +1773,7 @@ If an endpoint skips validation of a peer address as described in
 {{migration-response}}, it does not need to limit its sending rate.
 
 
-### Handling Address Spoofing by an On-path Attacker {#on-path-spoofing}
+### On-Path Address Spoofing {#on-path-spoofing}
 
 An on-path attacker could cause a spurious connection migration by copying and
 forwarding a packet with a spoofed address such that it arrives before the
@@ -1938,6 +1796,55 @@ MAY send a stateless reset in response to any further incoming packets.
 Note that receipt of packets with higher packet numbers from the legitimate peer
 address will trigger another connection migration.  This will cause the
 validation of the address of the spurious migration to be abandoned.
+
+
+### Off-Path Packet Forwarding {#off-path-forward}
+
+An off-path attacker that can observe packets might forward copies of genuine
+packets to endpoints.  If the copied packet arrives before the genuine packet,
+this will appear as a NAT rebinding.  Any genuine packet will be discarded as a
+duplicate.  If the attacker is able to continue forwarding packets, it might be
+able to cause migration to a path via the attacker.  This places the attacker on
+path, giving it the ability to observe or drop all subsequent packets.
+
+Unlike the attack described in {{on-path-spoofing}}, the attacker can ensure
+that the new path is successfully validated.
+
+This style of attack relies on the attacker using a path that is approximately
+as fast as the direct path between endpoints.  The attack is more reliable if
+relatively few packets are sent or if packet loss coincides with the attempted
+attack.
+
+A non-probing packet received on the original path that increases the maximum
+received packet number will cause the endpoint to move back to that path.
+Eliciting packets on this path increases the likelihood that the attack is
+unsuccessful.  Therefore, mitigation of this attack relies on triggering the
+exchange of packets.
+
+In response to an apparent migration, endpoints MUST validate the previously
+active path using a PATH_CHALLENGE frame.  This induces the sending of new
+packets on that path.  If the path is no longer viable, the validation attempt
+will time out and fail; if the path is viable, but no longer desired, the
+validation will succeed, but only results in probing packets being sent on the
+path.
+
+An endpoint that receives a PATH_CHALLENGE on an active path SHOULD send a
+non-probing packet in response.  If the non-probing packet arrives before any
+copy made by an attacker, this results in the connection being migrated back to
+the original path.  Any subsequent migration to another path restarts this
+entire process.
+
+This defense is imperfect, but this is not considered a serious problem. If the
+path via the attack is reliably faster than the original path despite multiple
+attempts to use that original path, it is not possible to distinguish between
+attack and an improvement in routing.
+
+An endpoint could also use heuristics to improve detection of this style of
+attack.  For instance, NAT rebinding is improbable if packets were recently
+received on the old path, similarly rebinding is rare on IPv6 paths.  Endpoints
+can also look for duplicated packets.  Conversely, a change in connection ID is
+more likely to indicate an intentional migration rather than an attack.
+
 
 ## Loss Detection and Congestion Control {#migration-cc}
 
@@ -1964,13 +1871,16 @@ multiple paths will still send ACK frames covering all received packets.
 
 While multiple paths might be used during connection migration, a single
 congestion control context and a single loss recovery context (as described in
-{{QUIC-RECOVERY}}) may be adequate.  A sender can make exceptions for probe
-packets so that their loss detection is independent and does not unduly cause
-the congestion controller to reduce its sending rate.  An endpoint might set a
-separate timer when a PATH_CHALLENGE is sent, which is cancelled when the
-corresponding PATH_RESPONSE is received.  If the timer fires before the
-PATH_RESPONSE is received, the endpoint might send a new PATH_CHALLENGE, and
-restart the timer for a longer period of time.
+{{QUIC-RECOVERY}}) may be adequate.  For instance, an endpoint might delay
+switching to a new congestion control context until it is confirmed that an old
+path is no longer needed (such as the case in {{off-path-forward}}).
+
+A sender can make exceptions for probe packets so that their loss detection is
+independent and does not unduly cause the congestion controller to reduce its
+sending rate.  An endpoint might set a separate timer when a PATH_CHALLENGE is
+sent, which is cancelled when the corresponding PATH_RESPONSE is received.  If
+the timer fires before the PATH_RESPONSE is received, the endpoint might send a
+new PATH_CHALLENGE, and restart the timer for a longer period of time.
 
 
 ## Privacy Implications of Connection Migration {#migration-linkability}
@@ -2319,7 +2229,7 @@ Using a randomized connection ID results in two problems:
   critical for routing toward the peer, then this packet could be incorrectly
   routed.  This might also trigger another Stateless Reset in response, see
   {{reset-looping}}.  A Stateless Reset that is not correctly routed is
-  ineffective in causing errors to be quickly detected and recovered.  In this
+  an ineffective error detection and recovery mechanism.  In this
   case, endpoints will need to rely on other methods - such as timers - to
   detect that the connection has failed.
 
@@ -2497,7 +2407,7 @@ Packets that carry the long header are Initial {{packet-initial}}, Retry
 Packets with the short header are designed for minimal overhead and are used
 after a connection is established.
 
-Version negotiation uses a packet with a special format (see
+Version errors use a packet with a special format (see
 {{packet-version}}).
 
 
@@ -2554,7 +2464,7 @@ decryption fails (because the keys are not available or any other reason) or the
 packet is of an unknown type, the receiver MAY either discard or buffer the
 packet for later processing and MUST attempt to process the remaining packets.
 
-Retry packets ({{packet-retry}}), Version Negotiation packets
+Retry packets ({{packet-retry}}), Version Error packets
 ({{packet-version}}), and packets with a short header cannot be followed by
 other packets in the same UDP datagram.
 
@@ -2567,7 +2477,7 @@ This number is used in determining the cryptographic nonce for packet
 protection.  Each endpoint maintains a separate packet number for sending and
 receiving.
 
-Version Negotiation ({{packet-version}}) and Retry {{packet-retry}} packets do
+Version Error ({{packet-version}}) and Retry {{packet-retry}} packets do
 not include a packet number.
 
 Packet numbers are divided into 3 spaces in QUIC:
@@ -2885,8 +2795,8 @@ containing that information is acknowledged.
   RETIRE_CONNECTION_ID frames and retransmitted if the packet containing them is
   lost.
 
-* PADDING frames contain no information, so lost PADDING frames do not require
-  repair.
+* PING and PADDING frames contain no information, so lost PING or PADDING frames
+  do not require repair.
 
 Endpoints SHOULD prioritize retransmission of data over sending new data, unless
 priorities specified by the application indicate otherwise (see
@@ -3035,11 +2945,10 @@ packets (except for PMTU probe packets) SHOULD be sized to fit within the
 maximum packet size to avoid the packet being fragmented or dropped
 {{?RFC8085}}.
 
-To optimize capacity efficiency, endpoints SHOULD use Datagram Packetization
-Layer PMTU Discovery ({{!DPLPMTUD=I-D.ietf-tsvwg-datagram-plpmtud}}), or
-implement Path MTU Discovery (PMTUD) {{!RFC1191}} {{!RFC8201}} to determine
-whether the path to a destination will support its desired message size without
-fragmentation.
+An endpoint SHOULD use Datagram Packetization Layer PMTU Discovery
+({{!DPLPMTUD=I-D.ietf-tsvwg-datagram-plpmtud}}) or implement Path MTU Discovery
+(PMTUD) {{!RFC1191}} {{!RFC8201}} to determine whether the path to a destination
+will support a desired message size without fragmentation.
 
 In the absence of these mechanisms, QUIC endpoints SHOULD NOT send IP packets
 larger than 1280 bytes. Assuming the minimum IP header size, this results in a
@@ -3067,6 +2976,9 @@ because it is larger than the local router MTU. DPLPMTUD can also optionally use
 these messages.  This use of ICMP messages is potentially vulnerable to off-path
 attacks that successfully guess the IP address 3-tuple and reduce the PMTU to a
 bandwidth-inefficient value.
+
+An endpoint MUST ignore an ICMP message that claims the PMTU has decreased below
+1280 bytes.
 
 QUIC endpoints SHOULD provide validation to protect from off-path injection of
 ICMP messages as specified in {{!RFC8201}} and Section 5.2 of {{!RFC8085}}. This
@@ -3114,10 +3026,10 @@ When implementing the algorithm in Section 5.3 of {{!DPLPMTUD}}, the initial
 value of BASE_PMTU SHOULD be consistent with the minimum QUIC packet size (1232
 bytes for IPv6 and 1252 bytes for IPv4).
 
-PADDING and PING frames can be used to generate PMTU probe packets. These frames
-are not delivered reliably, so do not result in retransmission if the packet is
-lost.  However, these frames do consume congestion window, which could delay the
-transmission of subsequent application data.
+PING and PADDING frames can be used to generate PMTU probe packets. These frames
+might not be retransmitted if a probe packet containing them is lost.  However,
+these frames do consume congestion window, which could delay the transmission of
+subsequent application data.
 
 A PING frame can be included in a PMTU probe to ensure that a valid probe is
 acknowledged.
@@ -3468,17 +3380,17 @@ version.  See {{QUIC-INVARIANTS}} for details on how packets from different
 versions of QUIC are interpreted.
 
 
-## Version Negotiation Packet {#packet-version}
+## Version Error Packet {#packet-version}
 
-A Version Negotiation packet is inherently not version-specific, and does not
+A Version Error packet is inherently not version-specific, and does not
 use the long packet header (see {{long-header}}). Upon receipt by a client, it
 will appear to be a packet using the long header, but will be identified as a
-Version Negotiation packet based on the Version field having a value of 0.
+Version Error packet based on the Version field having a value of 0.
 
-The Version Negotiation packet is a response to a client packet that contains a
+The Version Error packet is a response to a client packet that contains a
 version that is not supported by the server, and is only sent by servers.
 
-The layout of a Version Negotiation packet is:
+The layout of a Version Error packet is:
 
 ~~~
  0                   1                   2                   3
@@ -3494,43 +3406,32 @@ The layout of a Version Negotiation packet is:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                 Source Connection ID (0/32..144)            ...
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Supported Version 1 (32)                 ...
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                   [Supported Version 2 (32)]                ...
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-                               ...
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                   [Supported Version N (32)]                ...
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ~~~
-{: #version-negotiation-format title="Version Negotiation Packet"}
+{: #version-error-format title="Version Error Packet"}
 
 The value in the Unused field is selected randomly by the server.
 
-The Version field of a Version Negotiation packet MUST be set to 0x00000000.
+The Version field of a Version Error packet MUST be set to 0x00000000.
 
 The server MUST include the value from the Source Connection ID field of the
 packet it receives in the Destination Connection ID field.  The value for Source
 Connection ID MUST be copied from the Destination Connection ID of the received
 packet, which is initially randomly selected by a client.  Echoing both
 connection IDs gives clients some assurance that the server received the packet
-and that the Version Negotiation packet was not generated by an off-path
+and that the Version Error packet was not generated by an off-path
 attacker.
 
-The remainder of the Version Negotiation packet is a list of 32-bit versions
-which the server supports.
+[[OPEN ISSUE: We could add the version list from VN back in if we
+wanted. However, it's not secure without all the stuff we are
+removing for VN double-checking. Note that we should probably leave
+the invariants as-is.]]
 
-A Version Negotiation packet cannot be explicitly acknowledged in an ACK frame
-by a client.  Receiving another Initial packet implicitly acknowledges a Version
-Negotiation packet.
-
-The Version Negotiation packet does not include the Packet Number and Length
+The Version Error packet does not include the Packet Number and Length
 fields present in other packets that use the long header form.  Consequently,
-a Version Negotiation packet consumes an entire UDP datagram.
+a Version Error packet consumes an entire UDP datagram.
 
-See {{version-negotiation}} for a description of the version negotiation
-process.
-
+A Version Error packet represents a hard failure and MUST be treated
+as such by the client.
 
 ## Initial Packet {#packet-initial}
 
@@ -3836,12 +3737,11 @@ language from Section 3 of {{!TLS13=RFC8446}}.
    struct {
       select (Handshake.msg_type) {
          case client_hello:
-            QuicVersion initial_version;
+            QuicVersion supported_versions<4..2^8-4>;
 
          case encrypted_extensions:
-            QuicVersion negotiated_version;
-            QuicVersion supported_versions<4..2^8-4>;
-      };
+            QuicVersion version;
+      }
       TransportParameter parameters<0..2^16-1>;
    } TransportParameters;
 ~~~
@@ -4060,7 +3960,7 @@ packet number spaces.  ACK frames only acknowledge the packet numbers that were
 transmitted by the sender in the same packet number space of the packet that the
 ACK was received in.
 
-Version Negotiation and Retry packets cannot be acknowledged because they do not
+Retry packets cannot be acknowledged because they do not
 contain a packet number.  Rather than relying on ACK frames, these packets are
 implicitly acknowledged by the next Initial packet sent by the client.
 
@@ -4373,7 +4273,7 @@ level. The stream does not have an explicit end, so CRYPTO frames do not have a
 FIN bit.
 
 
-## NEW_TOKEN frame {#frame-new-token}
+## NEW_TOKEN Frame {#frame-new-token}
 
 A server sends a NEW_TOKEN frame (type=0x07) to provide the client a token to
 send in the header of an Initial packet for a future connection.
@@ -4747,8 +4647,9 @@ connection IDs from old ones.
 
 If an endpoint receives a NEW_CONNECTION_ID frame that repeats a previously
 issued connection ID with a different Stateless Reset Token or a different
-sequence number, the endpoint MAY treat that receipt as a connection error of
-type PROTOCOL_VIOLATION.
+sequence number, or if a sequence number is used for different connection
+IDs, the endpoint MAY treat that receipt as a connection error of type
+PROTOCOL_VIOLATION.
 
 
 ## RETIRE_CONNECTION_ID Frame {#frame-retire-connection-id}
@@ -4964,12 +4865,6 @@ TRANSPORT_PARAMETER_ERROR (0x8):
   an invalid value, was absent even though it is mandatory, was present though
   it is forbidden, or is otherwise in error.
 
-VERSION_NEGOTIATION_ERROR (0x9):
-
-: An endpoint received transport parameters that contained version negotiation
-  parameters that disagreed with the version negotiation that it performed.
-  This error code indicates a potential version downgrade attack.
-
 PROTOCOL_VIOLATION (0xA):
 
 : An endpoint detected an error with protocol compliance that was not covered by
@@ -5022,7 +4917,7 @@ The first mechanism used is the source and destination connection IDs, which are
 required to match those set by a peer.  Except for an Initial and stateless
 reset packets, an endpoint only accepts packets that include a destination
 connection that matches a connection ID the endpoint previously chose.  This is
-the only protection offered for Version Negotiation packets.
+the only protection offered for Version Error packets.
 
 The destination connection ID in an Initial packet is selected by a client to be
 unpredictable, which serves an additional purpose.  The packets that carry the
@@ -5040,8 +4935,7 @@ attacker can potentially send packets that will be accepted by QUIC endpoints.
 This version of QUIC attempts to detect this sort of attack, but it expects that
 endpoints will fail to establish a connection rather than recovering.  For the
 most part, the cryptographic handshake protocol {{QUIC-TLS}} is responsible for
-detecting tampering during the handshake, though additional validation is
-required for version negotiation (see {{version-validation}}).
+detecting tampering during the handshake.
 
 Endpoints are permitted to use other methods to detect and attempt to recover
 from interference with the handshake.  Invalid packets may be identified and
@@ -5322,7 +5216,6 @@ from 0xFF00 to 0xFFFF are reserved for Private Use {{!RFC8126}}.
 | 0x6   | FINAL_OFFSET_ERROR        | Change to final stream offset | {{error-codes}} |
 | 0x7   | FRAME_ENCODING_ERROR      | Frame encoding error          | {{error-codes}} |
 | 0x8   | TRANSPORT_PARAMETER_ERROR | Error in transport parameters | {{error-codes}} |
-| 0x9   | VERSION_NEGOTIATION_ERROR | Version negotiation failure   | {{error-codes}} |
 | 0xA   | PROTOCOL_VIOLATION        | Generic protocol violation    | {{error-codes}} |
 | 0xC   | INVALID_MIGRATION         | Violated disabled migration   | {{error-codes}} |
 {: #iana-error-table title="Initial QUIC Transport Error Codes Entries"}
