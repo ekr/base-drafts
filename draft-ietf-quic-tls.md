@@ -684,19 +684,18 @@ MAY also include PADDING frames.
 ### Discarding Initial Keys
 
 Packets protected with Initial secrets ({{initial-secrets}}) are not
-authenticated, meaning that an attacker could spoof packets with the intent to
-disrupt a connection.  To limit these attacks, Initial packet protection keys
-can be discarded more aggressively than other keys.
+authenticated, meaning that an attacker could spoof packets with the
+intent to disrupt a connection.  To limit these attacks, Initial
+packet protection keys can be discarded more aggressively than other
+keys.
 
-The successful use of Handshake packets indicates that no more Initial packets
-need to be exchanged, as these keys can only be produced after receiving all
-CRYPTO frames from Initial packets.  Thus, a client MUST discard Initial keys
-when it first sends a Handshake packet and a server MUST discard Initial keys
-when it first successfully processes a Handshake packet.  Endpoints MUST NOT
-send Initial packets after this point.
+An endpoint MUST discard its Initial keys as soon as it receives an
+ACK of any packet sent at a higher encryption level. Endpoints MUST
+NOT send Initial packets after this point.
 
-This results in abandoning loss recovery state for the Initial encryption level
-and ignoring any outstanding Initial packets.
+Discarding the Initial state results in abandoning loss recovery state
+for the Initial encryption level and ignoring any outstanding Initial
+packets.
 
 
 ### Discarding Handshake Keys
